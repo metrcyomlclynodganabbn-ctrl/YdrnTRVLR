@@ -32,7 +32,8 @@ def get_welcome_text(is_admin: bool = False) -> str:
     """Формирует приветственный текст с реальными тарифами из БД."""
     from database.requests import (
         get_all_tariffs, get_setting, 
-        is_crypto_configured, is_stars_enabled, is_cards_enabled
+        is_crypto_configured, is_stars_enabled, is_cards_enabled,
+        is_yookassa_qr_configured
     )
     from bot.utils.text import escape_md2
     
@@ -43,6 +44,7 @@ def get_welcome_text(is_admin: bool = False) -> str:
     crypto_enabled = is_crypto_configured()
     stars_enabled = is_stars_enabled()
     cards_enabled = is_cards_enabled()
+    yookassa_qr_enabled = is_yookassa_qr_configured()
     
     # 2. Получаем тарифы из БД (только активные)
     tariffs = get_all_tariffs()
@@ -61,7 +63,7 @@ def get_welcome_text(is_admin: bool = False) -> str:
             if stars_enabled:
                 prices.append(f"{tariff['price_stars']} ⭐")
                 
-            if cards_enabled and tariff.get('price_rub', 0) > 0:
+            if (cards_enabled or yookassa_qr_enabled) and tariff.get('price_rub', 0) > 0:
                 prices.append(f"{int(tariff['price_rub'])} ₽")
             
             # Если нет доступных методов оплаты (или все выключены),
