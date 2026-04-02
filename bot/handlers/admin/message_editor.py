@@ -16,12 +16,10 @@ from bot.utils.admin import is_admin
 from bot.utils.text import safe_edit_or_send
 from bot.utils.message_editor import (
     get_message_data, save_message_data, detect_message_type,
-    editor_kb, editor_help_kb,
+    editor_kb, editor_help_kb, send_editor_message,
 )
 
 logger = logging.getLogger(__name__)
-
-from bot.utils.message_editor import get_message_data
 
 router = Router()
 
@@ -33,15 +31,13 @@ async def show_message_editor(
     back_callback: str,
     help_text: str = None,
     allowed_types: list = None,
-    parse_mode: str = None,
 ) -> Message:
-    """
-    Показывает превью сообщения с кнопками редактора.
+    """Показывает превью сообщения с кнопками редактора.
     
     Превью = сообщение ровно так, как оно будет выглядеть для пользователя.
     Без заголовков, рамок и инструкций.
     
-    Использует safe_edit_or_send() для рендера (правило ТЗ).
+    Использует send_editor_message() для рендера — единый контракт MarkdownV2.
     Сохраняет контекст в FSM data.
     
     Args:
@@ -58,40 +54,14 @@ async def show_message_editor(
     if allowed_types is None:
         allowed_types = ['text', 'photo', 'video', 'animation']
     
-    # Загружаем данные из БД
-    data = get_message_data(key)
-    text = data.get('text', '') or '_(пусто)_'
-    photo = data.get('photo_file_id')
-    video = data.get('video_file_id')
-    animation = data.get('animation_file_id')
-    
     # Формируем клавиатуру редактора
     kb = editor_kb(back_callback, has_help=bool(help_text))
     
-    # Определяем медиа для показа (приоритет: animation > video > photo)
-    # safe_edit_or_send пока поддерживает только photo, поэтому для video/animation
-    # используем фоллбэк на текст с пометкой
-    media_file_id = None
-    if animation:
-        # GIF — отправляем как текст (safe_edit_or_send не поддерживает animation)
-        # TODO: расширить safe_edit_or_send для animation/video
-        text = f"{text}\n\n🎞 _(к сообщению прикреплена GIF)_"
-    elif video:
-        text = f"{text}\n\n🎬 _(к сообщению прикреплено видео)_"
-    elif photo:
-        media_file_id = photo
-    
-    # Определяем режим парсинга
-    used_parse_mode = parse_mode
-    if used_parse_mode is None:
-        used_parse_mode = 'MarkdownV2' if not media_file_id else 'Markdown'
-        
-    # Показываем превью через safe_edit_or_send
-    result = await safe_edit_or_send(
-        message, text,
+    # Показываем превью через send_editor_message (единый MarkdownV2 helper)
+    result = await send_editor_message(
+        message,
+        key=key,
         reply_markup=kb,
-        parse_mode=used_parse_mode,
-        photo=media_file_id,
     )
     
     # Сохраняем контекст в FSM
@@ -102,7 +72,6 @@ async def show_message_editor(
         back_callback=back_callback,
         allowed_types=allowed_types,
         help_text=help_text,
-        editor_parse_mode=parse_mode,
     )
     
     return result
@@ -126,7 +95,7 @@ async def show_editor_help(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
     
-    # Показываем справку (остаёмся в waiting_for_message — ввод работает)
+    # Справка — это служебный текст (не из редактора), отправляем через safe_edit_or_send
     result = await safe_edit_or_send(
         callback.message,
         help_text,
@@ -151,7 +120,6 @@ async def back_to_preview(callback: CallbackQuery, state: FSMContext):
     back_callback = data.get('back_callback')
     help_text = data.get('help_text')
     allowed_types = data.get('allowed_types')
-    parse_mode = data.get('editor_parse_mode')
     
     if not key:
         await callback.answer("❌ Ошибка состояния", show_alert=True)
@@ -164,7 +132,6 @@ async def back_to_preview(callback: CallbackQuery, state: FSMContext):
         back_callback=back_callback,
         help_text=help_text,
         allowed_types=allowed_types,
-        parse_mode=parse_mode,
     )
     await callback.answer()
 
@@ -192,7 +159,6 @@ async def handle_editor_input(message: Message, state: FSMContext):
     help_text = data.get('help_text')
     allowed_types = data.get('allowed_types', ['text', 'photo', 'video', 'animation'])
     editor_message = data.get('editor_message')
-    parse_mode = data.get('editor_parse_mode')
     
     if not key:
         await state.clear()
@@ -227,7 +193,6 @@ async def handle_editor_input(message: Message, state: FSMContext):
                 back_callback=back_callback,
                 help_text=help_text,
                 allowed_types=allowed_types,
-                parse_mode=parse_mode,
             )
             return
         except Exception as e:
@@ -240,5 +205,4 @@ async def handle_editor_input(message: Message, state: FSMContext):
         back_callback=back_callback,
         help_text=help_text,
         allowed_types=allowed_types,
-        parse_mode=parse_mode,
     )

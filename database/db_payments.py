@@ -169,12 +169,27 @@ def get_daily_payments_stats() -> Dict[str, Any]:
         """)
         cards_row = cursor.fetchone()
         
+        # 4. Считаем QR-оплату (ЮКасса QR/СБП - Рубли)
+        cursor = conn.execute("""
+            SELECT 
+                COUNT(*) as count,
+                COALESCE(SUM(t.price_rub), 0) as total_rub
+            FROM payments p
+            LEFT JOIN tariffs t ON p.tariff_id = t.id
+            WHERE p.status = 'paid' 
+            AND p.payment_type = 'yookassa_qr'
+            AND p.paid_at >= datetime('now', '-1 day')
+        """)
+        qr_row = cursor.fetchone()
+        
         paid_count = (crypto_row['count'] if crypto_row else 0) + \
                      (stars_row['count'] if stars_row else 0) + \
-                     (cards_row['count'] if cards_row else 0)
+                     (cards_row['count'] if cards_row else 0) + \
+                     (qr_row['count'] if qr_row else 0)
         total_cents = crypto_row['total_cents'] if crypto_row else 0
         total_stars = stars_row['total_stars'] if stars_row else 0
-        total_rub = cards_row['total_rub'] if cards_row else 0
+        total_rub = (cards_row['total_rub'] if cards_row else 0) + \
+                    (qr_row['total_rub'] if qr_row else 0)
         
         return {
             'paid_count': paid_count,

@@ -205,12 +205,11 @@ async def qr_pay_create(callback: CallbackQuery):
 async def check_yookassa_payment(callback: CallbackQuery, state: FSMContext):
     """
     Проверяет статус QR-платежа ЮКасса по нажатию «✅ Я оплатил».
-    При успехе — запускает процесс создания ключа.
+    При успехе — делегирует обработку в complete_payment_flow().
     """
-    from database.requests import find_order_by_order_id, is_order_already_paid, update_payment_type, get_user_balance, deduct_from_balance
-    from bot.services.billing import check_yookassa_payment_status, process_payment_order, process_referral_reward
+    from database.requests import find_order_by_order_id, is_order_already_paid, update_payment_type
+    from bot.services.billing import check_yookassa_payment_status
     from bot.keyboards.admin import home_only_kb
-    from bot.services.user_locks import user_locks
     order_id = callback.data.split(':', 1)[1]
     if is_order_already_paid(order_id):
         order = find_order_by_order_id(order_id)
@@ -235,53 +234,31 @@ async def check_yookassa_payment(callback: CallbackQuery, state: FSMContext):
         return
     if status == 'succeeded':
         update_payment_type(order_id, 'yookassa_qr')
+        # Определяем сумму для реферального вознаграждения
         state_data = await state.get_data()
-        balance_to_deduct = state_data.get('balance_to_deduct', 0)
         remaining_cents = state_data.get('remaining_cents', 0)
+        if remaining_cents > 0:
+            referral_amount = remaining_cents
+        else:
+            # Обычная QR-оплата без частичной — берём цену тарифа в копейках рублей
+            from database.requests import get_tariff_by_id
+            _tariff = get_tariff_by_id(order.get('tariff_id'))
+            referral_amount = int((_tariff.get('price_rub', 0) or 0) * 100) if _tariff else 0
+        logger.info(f"Yookassa QR referral: order={order_id}, referral_amount={referral_amount}")
+        # Удаляем QR-фото перед показом результата
         try:
-            (success, text, updated_order) = await process_payment_order(order_id)
-            if success and updated_order:
-                user_internal_id = updated_order['user_id']
-                days = updated_order.get('period_days') or updated_order.get('duration_days') or 30
-                if balance_to_deduct > 0:
-                    async with user_locks[user_internal_id]:
-                        current_balance = get_user_balance(user_internal_id)
-                        actual_deduct = min(balance_to_deduct, current_balance)
-                        if actual_deduct > 0:
-                            deduct_from_balance(user_internal_id, actual_deduct)
-                            logger.info(f'Списано {actual_deduct} коп с баланса user {user_internal_id} при частичной QR-оплате')
-                await state.update_data(balance_to_deduct=0, remaining_cents=0)
-                # Определяем сумму для реферального вознаграждения:
-                # Если это частичная оплата (был баланс) — используем remaining_cents (сумму QR-платежа)
-                # Если это обычная оплата — берём полную цену тарифа из ордера
-                if remaining_cents > 0:
-                    referral_amount = remaining_cents
-                else:
-                    # Обычная QR-оплата без частичной — берём цену тарифа в копейках рублей
-                    from database.requests import get_tariff_by_id
-                    _tariff = get_tariff_by_id(updated_order.get('tariff_id'))
-                    referral_amount = int((_tariff.get('price_rub', 0) or 0) * 100) if _tariff else 0
-                
-                logger.info(f"Yookassa QR referral logic: payer={user_internal_id}, days={days}, referral_amount={referral_amount}, tariff_id={updated_order.get('tariff_id')}")
-                
-                await process_referral_reward(user_internal_id, days, referral_amount, 'yookassa_qr')
-                try:
-                    await callback.message.delete()
-                except Exception:
-                    pass
-                await finalize_payment_ui(callback.message, state, text, updated_order, user_id=callback.from_user.id)
-            else:
-                await callback.message.answer(text, reply_markup=home_only_kb(), parse_mode='Markdown')
-        except Exception as e:
-            from bot.errors import TariffNotFoundError
-            if isinstance(e, TariffNotFoundError):
-                from database.requests import get_setting
-                from bot.keyboards.user import support_kb
-                support_link = get_setting('support_channel_link', 'https://t.me/YadrenoChat')
-                await callback.message.answer(str(e), reply_markup=support_kb(support_link), parse_mode='Markdown')
-            else:
-                logger.exception(f'Ошибка обработки QR-платежа: {e}')
-                await callback.message.answer('❌ Произошла ошибка при обработке платежа.', parse_mode='Markdown')
+            await callback.message.delete()
+        except Exception:
+            pass
+        from bot.services.billing import complete_payment_flow
+        await complete_payment_flow(
+            order_id=order_id,
+            message=callback.message,
+            state=state,
+            telegram_id=callback.from_user.id,
+            payment_type='yookassa_qr',
+            referral_amount=referral_amount
+        )
     elif status == 'canceled':
         await callback.message.answer('❌ *Платёж отменён*\n\nПохоже, платёж был отменён или истёк срок QR-кода.\nПопробуйте снова выбрать тариф.', reply_markup=home_only_kb(), parse_mode='Markdown')
     else:

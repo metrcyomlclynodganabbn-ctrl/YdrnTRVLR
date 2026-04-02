@@ -149,6 +149,8 @@ async def cmd_help(message: Message, state: FSMContext):
 async def show_help(message: 'Message', is_callback: bool = False):
     """Общая логика для показа справки.
     
+    Использует send_editor_message() для единого MarkdownV2-контракта.
+    
     Args:
         message: Сообщение (Message) для отправки/редактирования
         is_callback: True если вызвано из callback (редактируем), False если из команды (отправляем новое)
@@ -156,9 +158,8 @@ async def show_help(message: 'Message', is_callback: bool = False):
     from bot.keyboards.admin import home_only_kb
     from bot.keyboards.user import help_kb
     from database.requests import get_setting
-    from bot.utils.message_editor import get_message_data
+    from bot.utils.message_editor import get_message_data, send_editor_message
     help_data = get_message_data('help_page_text', '❓ *Справка*')
-    help_text = help_data.get('text', '❓ *Справка*')
     help_photo = help_data.get('photo_file_id')
     default_news = 'https://t.me/YadrenoRu'
     default_support = 'https://t.me/YadrenoChat'
@@ -174,12 +175,11 @@ async def show_help(message: 'Message', is_callback: bool = False):
     support_name = get_setting('support_button_name', 'Поддержка')
     kb = help_kb(news_link, support_link, news_hidden=news_hidden, support_hidden=support_hidden, news_name=news_name, support_name=support_name)
     if is_callback:
-        await safe_edit_or_send(message, help_text, reply_markup=kb, parse_mode='MarkdownV2', photo=help_photo)
+        # Callback: редактируем через единый helper
+        await send_editor_message(message, data=help_data, default_text='❓ *Справка*', reply_markup=kb)
     else:
-        if help_photo:
-            await message.answer_photo(photo=help_photo, caption=help_text, reply_markup=kb, parse_mode='MarkdownV2')
-        else:
-            await message.answer(help_text, reply_markup=kb, parse_mode='MarkdownV2')
+        # Команда /help: новое сообщение — тоже через helper (safe_edit_or_send обработает)
+        await send_editor_message(message, data=help_data, default_text='❓ *Справка*', reply_markup=kb)
 
 @router.callback_query(F.data == 'help')
 async def help_handler(callback: CallbackQuery):

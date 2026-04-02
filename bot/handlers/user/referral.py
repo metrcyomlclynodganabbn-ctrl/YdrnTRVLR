@@ -19,7 +19,7 @@ from database.requests import (
     get_active_referral_levels,
 )
 from bot.keyboards.user import referral_menu_kb
-from bot.utils.text import safe_edit_or_send
+from bot.utils.text import safe_edit_or_send, escape_md2
 
 logger = logging.getLogger(__name__)
 
@@ -34,16 +34,17 @@ def format_price_compact(cents: int) -> str:
         return f"{cents / 100:.2f} ₽".replace(".", ",")
 
 
+# Дефолтные условия в MarkdownV2
 DEFAULT_CONDITIONS_DAYS = (
-    "Приглашённые пользователи регистрируются по вашей ссылке. "
-    "Когда они оплачивают подписку, вы получаете процент от купленных дней. "
-    "Дни автоматически добавляются к вашему первому активному ключу."
+    "Приглашённые пользователи регистрируются по вашей ссылке\\. "
+    "Когда они оплачивают подписку, вы получаете процент от купленных дней\\. "
+    "Дни автоматически добавляются к вашему первому активному ключу\\."
 )
 
 DEFAULT_CONDITIONS_BALANCE = (
-    "Приглашённые пользователи регистрируются по вашей ссылке. "
-    "Когда они оплачивают подписку, вы получаете процент от суммы оплаты на свой баланс. "
-    "Накопленными средствами можно оплачивать новые ключи или продлевать существующие."
+    "Приглашённые пользователи регистрируются по вашей ссылке\\. "
+    "Когда они оплачивают подписку, вы получаете процент от суммы оплаты на свой баланс\\. "
+    "Накопленными средствами можно оплачивать новые ключи или продлевать существующие\\."
 )
 
 
@@ -75,6 +76,7 @@ async def show_referral_system(callback: CallbackQuery):
     stats = get_referral_stats(user_internal_id)
     balance = get_user_balance(user_internal_id)
     
+    # Весь текст в MarkdownV2
     text_lines = [
         "👥 *Реферальная система*",
         "",
@@ -86,6 +88,7 @@ async def show_referral_system(callback: CallbackQuery):
     text_lines.append("━━━━━━━━━━━━━━━")
     text_lines.append("📝 *Условия:*")
     if conditions_text:
+        # Текст из редактора уже в MarkdownV2
         text_lines.append(conditions_text)
     elif reward_type == 'days':
         text_lines.append(DEFAULT_CONDITIONS_DAYS)
@@ -105,17 +108,22 @@ async def show_referral_system(callback: CallbackQuery):
         
         if reward_type == 'days':
             total_reward = level_stat['total_reward_days'] if level_stat else 0
-            reward_display = f"{total_reward} дн."
+            reward_display = escape_md2(f"{total_reward} дн.")
         else:
             total_reward = level_stat['total_reward_cents'] if level_stat else 0
-            reward_display = format_price_compact(total_reward)
+            reward_display = escape_md2(format_price_compact(total_reward))
         
-        text_lines.append(f"Уровень {level_num} ({percent}%): {count} чел. — {reward_display}")
+        # Динамические значения экранируются через escape_md2
+        text_lines.append(
+            f"Уровень {escape_md2(str(level_num))} "
+            f"\\({escape_md2(str(percent))}%\\): "
+            f"{escape_md2(str(count))} чел\\. — {reward_display}"
+        )
     text_lines.append("")
     
     if reward_type == 'balance':
         text_lines.append("━━━━━━━━━━━━━━━")
-        text_lines.append(f"💰 *Ваш баланс:* {format_price_compact(balance)}")
+        text_lines.append(f"💰 *Ваш баланс:* {escape_md2(format_price_compact(balance))}")
         text_lines.append("")
     
     text = "\n".join(text_lines)
@@ -123,7 +131,7 @@ async def show_referral_system(callback: CallbackQuery):
     await safe_edit_or_send(callback.message, 
         text,
         reply_markup=referral_menu_kb(),
-        parse_mode="Markdown",
+        parse_mode="MarkdownV2",
         photo=conditions_photo,
     )
     await callback.answer()

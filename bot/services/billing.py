@@ -708,3 +708,83 @@ def calculate_balance_discount(user_id: int, tariff_price_cents: int) -> tuple[i
     else:
         return tariff_price_cents - balance, balance
 
+
+async def complete_payment_flow(
+    order_id: str,
+    message,
+    state,
+    telegram_id: int,
+    payment_type: str,
+    referral_amount: int
+) -> None:
+    """
+    Единый post-payment поток после подтверждения оплаты.
+    
+    Выполняет:
+    1. Обработку ордера (process_payment_order)
+    2. Списание баланса (если частичная оплата)
+    3. Начисление реферального вознаграждения
+    4. Финализацию UI (выдача ключа / показ результата)
+    
+    Вызывается из:
+    - successful_payment_handler (Stars/Cards) — base.py
+    - check_yookassa_payment (QR/СБП) — yookassa.py
+    
+    Args:
+        order_id: ID ордера
+        message: Сообщение для ответа пользователю
+        state: FSM-контекст (для баланса и очистки)
+        telegram_id: Telegram ID пользователя
+        payment_type: Тип платежа ('stars', 'cards', 'yookassa_qr')
+        referral_amount: Сырая сумма для реферального вознаграждения:
+            - 'stars': количество звёзд
+            - 'cards': копейки рублей
+            - 'yookassa_qr': копейки рублей
+    """
+    from bot.handlers.user.payments.base import finalize_payment_ui
+    from bot.keyboards.admin import home_only_kb
+    from bot.services.user_locks import user_locks
+    
+    state_data = await state.get_data()
+    balance_to_deduct = state_data.get('balance_to_deduct', 0)
+    
+    try:
+        (success, text, order) = await process_payment_order(order_id)
+        
+        if success and order:
+            user_internal_id = order['user_id']
+            days = order.get('period_days') or order.get('duration_days') or 30
+            
+            # Списание баланса при частичной оплате
+            if balance_to_deduct > 0:
+                async with user_locks[user_internal_id]:
+                    current_balance = get_user_balance(user_internal_id)
+                    actual_deduct = min(balance_to_deduct, current_balance)
+                    if actual_deduct > 0:
+                        deduct_from_balance(user_internal_id, actual_deduct)
+                        logger.info(
+                            f'Списано {actual_deduct} коп с баланса user '
+                            f'{user_internal_id} при частичной оплате ({payment_type})'
+                        )
+            
+            # Очистка FSM данных о балансе
+            await state.update_data(balance_to_deduct=0, remaining_cents=0)
+            
+            # Реферальное вознаграждение
+            await process_referral_reward(user_internal_id, days, referral_amount, payment_type)
+            
+            # Финализация UI
+            await finalize_payment_ui(message, state, text, order, user_id=telegram_id)
+        else:
+            await message.answer(text, reply_markup=home_only_kb(), parse_mode='Markdown')
+    
+    except Exception as e:
+        from bot.errors import TariffNotFoundError
+        if isinstance(e, TariffNotFoundError):
+            from bot.keyboards.user import support_kb
+            support_link = get_setting('support_channel_link', 'https://t.me/YadrenoChat')
+            await message.answer(str(e), reply_markup=support_kb(support_link), parse_mode='Markdown')
+        else:
+            logger.exception(f'Ошибка обработки {payment_type} платежа: {e}')
+            await message.answer('❌ Произошла ошибка при обработке платежа.', parse_mode='Markdown')
+

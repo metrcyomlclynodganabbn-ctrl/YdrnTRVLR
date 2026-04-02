@@ -164,3 +164,67 @@ def editor_help_kb() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="⬅️ Назад", callback_data="msg_editor_back_to_preview")
     )
     return builder.as_markup()
+
+
+async def send_editor_message(
+    message: Message,
+    key: str = None,
+    data: dict = None,
+    default_text: str = '',
+    reply_markup=None,
+    text_override: str = None,
+) -> Message:
+    """Универсальная отправка/редактирование сообщения из редактора.
+    
+    Единый контракт: все тексты из редактора хранятся в БД в формате
+    MarkdownV2 и отправляются ТОЛЬКО через эту функцию с parse_mode='MarkdownV2'.
+    
+    Внутри делегирует вызов в safe_edit_or_send() для обработки
+    переходов текст↔медиа и ошибок Telegram API.
+    
+    Args:
+        message: Сообщение для редактирования или ответа
+        key: Ключ настройки в таблице settings (загружает через get_message_data)
+        data: Уже загруженный словарь данных (приоритет над key)
+        default_text: Текст по умолчанию если ключ не найден
+        reply_markup: Клавиатура
+        text_override: Подготовленный текст (заменяет data['text']).
+            Используется когда нужно подставить плейсхолдеры (%тарифы%, %ключ% и т.д.)
+            Важно: все динамические значения должны быть экранированы через escape_md2()
+            
+    Returns:
+        Объект Message после отправки/редактирования
+    """
+    from bot.utils.text import safe_edit_or_send
+    
+    # Загружаем данные из БД если не переданы явно
+    if data is None:
+        if key is None:
+            raise ValueError("Нужно передать key или data")
+        data = get_message_data(key, default_text)
+    
+    # Определяем текст
+    text = text_override if text_override is not None else (data.get('text', '') or default_text)
+    if not text:
+        text = '\\(пусто\\)'
+    
+    # Определяем медиа (приоритет: animation > video > photo)
+    # safe_edit_or_send поддерживает только photo, для video/animation — фоллбэк на текст
+    photo = data.get('photo_file_id')
+    animation = data.get('animation_file_id')
+    video = data.get('video_file_id')
+    
+    media_file_id = None
+    if animation:
+        text = f"{text}\n\n🎞 _\\(к сообщению прикреплена GIF\\)_"
+    elif video:
+        text = f"{text}\n\n🎬 _\\(к сообщению прикреплено видео\\)_"
+    elif photo:
+        media_file_id = photo
+    
+    return await safe_edit_or_send(
+        message, text,
+        reply_markup=reply_markup,
+        parse_mode='MarkdownV2',
+        photo=media_file_id,
+    )

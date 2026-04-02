@@ -35,11 +35,19 @@ def home_only_kb() -> InlineKeyboardMarkup:
 def admin_main_menu_kb() -> InlineKeyboardMarkup:
     """Главное меню админ-панели."""
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text='🖥️ Сервера', callback_data='admin_servers'))
-    builder.row(InlineKeyboardButton(text='💳 Оплаты', callback_data='admin_payments'), InlineKeyboardButton(text='📢 Рассылка', callback_data='admin_broadcast'))
-    builder.row(InlineKeyboardButton(text='👥 Пользователи', callback_data='admin_users'))
-    builder.row(InlineKeyboardButton(text='⚙️ Настройки бота', callback_data='admin_bot_settings'))
-    builder.row(InlineKeyboardButton(text='📥 Скачать логи', callback_data='admin_logs_menu'))
+    builder.row(
+        InlineKeyboardButton(text='🖥️ Сервера', callback_data='admin_servers'),
+        InlineKeyboardButton(text='💳 Оплаты', callback_data='admin_payments')
+    )
+    builder.row(
+        InlineKeyboardButton(text='👥 Пользователи', callback_data='admin_users'),
+        InlineKeyboardButton(text='📢 Рассылка', callback_data='admin_broadcast')
+    )
+    builder.row(
+        InlineKeyboardButton(text='⚙️ Настройки бота', callback_data='admin_bot_settings'),
+        InlineKeyboardButton(text='📥 Скачать логи', callback_data='admin_logs_menu')
+    )
+    builder.row(InlineKeyboardButton(text='🤍 Поддержка автора', callback_data='admin_author_support', style='success'))
     builder.row(home_button())
     return builder.as_markup()
 
@@ -47,7 +55,7 @@ def admin_logs_menu_kb() -> InlineKeyboardMarkup:
     """Меню скачивания логов."""
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text='📄 Полный лог', callback_data='admin_download_log_full'), InlineKeyboardButton(text='⚠️ Ошибки', callback_data='admin_download_log_errors'))
-    builder.row(InlineKeyboardButton(text='🗑️ Стереть логи', callback_data='admin_clear_logs_confirm'))
+    builder.row(InlineKeyboardButton(text='🧹 Очистить логи', callback_data='admin_clear_logs_confirm'))
     builder.row(back_button('admin_panel'), home_button())
     return builder.as_markup()
 
@@ -94,4 +102,14 @@ def update_confirm_kb(has_updates: bool=True, has_blocking: bool=False, is_beta_
         builder.row(InlineKeyboardButton(text='❌ Отмена', callback_data='admin_bot_settings'))
     else:
         builder.row(InlineKeyboardButton(text='⬅️ Назад', callback_data='admin_bot_settings'))
+    return builder.as_markup()
+
+def author_support_kb() -> InlineKeyboardMarkup:
+    """Клавиатура для экрана поддержки автора."""
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text='💳 Карты РФ', url='https://yoomoney.ru/fundraise/1GJ73GGRJBC.260318'),
+        InlineKeyboardButton(text='💰 USDT', url='https://t.me/Ya_SellerBot?start=item-40')
+    )
+    builder.row(back_button('admin_panel'), home_button())
     return builder.as_markup()

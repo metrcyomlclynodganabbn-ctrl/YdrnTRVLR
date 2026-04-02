@@ -5,6 +5,7 @@
 """
 import asyncio
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 import signal
 import sys
@@ -32,7 +33,12 @@ logging.basicConfig(
     format="[%(asctime)s] [%(levelname)s] [%(name)s] - %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler("logs/bot.log", encoding="utf-8")
+        RotatingFileHandler(
+            "logs/bot.log", 
+            maxBytes=1024 * 1024,  # 1 мегабайт
+            backupCount=3, 
+            encoding="utf-8"
+        )
     ]
 )
 

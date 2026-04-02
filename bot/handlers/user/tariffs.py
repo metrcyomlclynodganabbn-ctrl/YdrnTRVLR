@@ -14,7 +14,6 @@ from bot.states.user_states import RenameKey, ReplaceKey
 from bot.utils.text import escape_md, safe_edit_or_send
 
 logger = logging.getLogger(__name__)
-from bot.utils.text import safe_edit_or_send
 
 router = Router()
 
@@ -49,24 +48,26 @@ async def buy_key_handler(callback: CallbackQuery):
             if balance_cents > 0:
                 show_balance_button = True
     if not crypto_configured and (not stars_enabled) and (not cards_enabled) and (not yookassa_qr):
-        await safe_edit_or_send(callback.message, '💳 *Купить ключ*\n\n😔 К сожалению, сейчас оплата недоступна.\n\nПопробуйте позже или обратитесь в поддержку.', reply_markup=home_only_kb(), parse_mode='Markdown')
+        await safe_edit_or_send(callback.message, '💳 *Купить ключ*\n\n😔 К сожалению, сейчас оплата недоступна\\.\n\nПопробуйте позже или обратитесь в поддержку\\.', reply_markup=home_only_kb(), parse_mode='MarkdownV2')
         await callback.answer()
         return
-    from bot.utils.message_editor import get_message_data
+    from bot.utils.message_editor import get_message_data, send_editor_message
     prepayment_data = get_message_data('prepayment_text', '')
     prepayment_text = prepayment_data.get('text', '') or ''
-    prepayment_photo = prepayment_data.get('photo_file_id')
-    text = f'{prepayment_text}\n\nВыберите способ оплаты\\:'
+    # Добавляем приглашение выбрать способ оплаты (MarkdownV2)
+    text_override = f'{prepayment_text}\n\nВыберите способ оплаты\\:' if prepayment_text else 'Выберите способ оплаты\\:'
     kb = buy_key_kb(crypto_url=crypto_url, crypto_mode=crypto_mode, crypto_configured=crypto_configured, stars_enabled=stars_enabled, cards_enabled=cards_enabled, yookassa_qr_enabled=yookassa_qr, order_id=existing_order_id, show_balance_button=show_balance_button)
     try:
-        await safe_edit_or_send(callback.message, text, reply_markup=kb, parse_mode='MarkdownV2', photo=prepayment_photo)
+        await send_editor_message(callback.message, data=prepayment_data, reply_markup=kb, text_override=text_override)
     except Exception:
         try:
             await callback.message.delete()
         except:
             pass
+        # Фоллбэк: отправляем новое сообщение
+        prepayment_photo = prepayment_data.get('photo_file_id')
         if prepayment_photo:
-            await callback.message.answer_photo(photo=prepayment_photo, caption=text, reply_markup=kb, parse_mode='MarkdownV2')
+            await callback.message.answer_photo(photo=prepayment_photo, caption=text_override, reply_markup=kb, parse_mode='MarkdownV2')
         else:
-            await callback.message.answer(text, reply_markup=kb, parse_mode='MarkdownV2')
+            await callback.message.answer(text_override, reply_markup=kb, parse_mode='MarkdownV2')
     await callback.answer()

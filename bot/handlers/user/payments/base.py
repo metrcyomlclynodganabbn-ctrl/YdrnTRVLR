@@ -38,60 +38,30 @@ async def successful_payment_handler(message: Message, state: FSMContext):
     """
     Обработка успешной оплаты Stars или Cards.
     
-    При частичной оплате с балансом:
-    - Списывает баланс под user_locks
-    - process_referral_reward получает только внешнюю сумму (remaining_cents)
-    - Сбрасывает balance_to_deduct в 0
+    Делегирует общую post-payment логику в complete_payment_flow().
     """
-    from bot.services.billing import process_payment_order, process_referral_reward
-    from database.requests import get_user_balance, deduct_from_balance
-    from bot.services.user_locks import user_locks
+    from bot.services.billing import complete_payment_flow
     payment = message.successful_payment
     payload = payment.invoice_payload
     currency = payment.currency
     payment_type = 'stars' if currency == 'XTR' else 'cards'
     logger.info(f'Успешная оплата {payment_type}: {payload}, charge_id={payment.telegram_payment_charge_id}')
-    data = await state.get_data()
-    balance_to_deduct = data.get('balance_to_deduct', 0)
-    remaining_cents = data.get('remaining_cents', 0)
+    
     if payload.startswith('renew:'):
         order_id = payload.split(':')[1]
     elif payload.startswith('vpn_key:'):
         order_id = payload.split(':')[1]
     else:
         order_id = payload
-    try:
-        (success, text, order) = await process_payment_order(order_id)
-        if success and order:
-            user_internal_id = order['user_id']
-            days = order.get('period_days') or order.get('duration_days') or 30
-            if balance_to_deduct > 0:
-                async with user_locks[user_internal_id]:
-                    current_balance = get_user_balance(user_internal_id)
-                    actual_deduct = min(balance_to_deduct, current_balance)
-                    if actual_deduct > 0:
-                        deduct_from_balance(user_internal_id, actual_deduct)
-                        logger.info(f'Списано {actual_deduct} коп с баланса user {user_internal_id} при частичной оплате')
-            await state.update_data(balance_to_deduct=0, remaining_cents=0)
-            if payment_type == 'stars':
-                amount = payment.total_amount
-            else:
-                amount = payment.total_amount
-            await process_referral_reward(user_internal_id, days, amount, payment_type)
-            await finalize_payment_ui(message, state, text, order, user_id=message.from_user.id)
-        else:
-            from bot.keyboards.admin import home_only_kb
-            await message.answer(text, reply_markup=home_only_kb(), parse_mode='Markdown')
-    except Exception as e:
-        from bot.errors import TariffNotFoundError
-        if isinstance(e, TariffNotFoundError):
-            from database.requests import get_setting
-            from bot.keyboards.user import support_kb
-            support_link = get_setting('support_channel_link', 'https://t.me/YadrenoChat')
-            await message.answer(str(e), reply_markup=support_kb(support_link), parse_mode='Markdown')
-        else:
-            logger.exception(f'Ошибка обработки {payment_type} платежа: {e}')
-            await message.answer('❌ Произошла ошибка при обработке платежа.', parse_mode='Markdown')
+    
+    await complete_payment_flow(
+        order_id=order_id,
+        message=message,
+        state=state,
+        telegram_id=message.from_user.id,
+        payment_type=payment_type,
+        referral_amount=payment.total_amount
+    )
 
 async def finalize_payment_ui(message: Message, state: FSMContext, text: str, order: dict, user_id: int):
     """

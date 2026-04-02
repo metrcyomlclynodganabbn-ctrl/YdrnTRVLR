@@ -14,7 +14,6 @@ from bot.states.user_states import RenameKey, ReplaceKey
 from bot.utils.text import escape_md, safe_edit_or_send
 
 logger = logging.getLogger(__name__)
-from bot.utils.text import safe_edit_or_send
 
 router = Router()
 
@@ -34,11 +33,13 @@ async def show_trial_subscription(callback: CallbackQuery):
     if has_used_trial(user_id):
         await callback.answer('ℹ️ Вы уже использовали пробный период', show_alert=True)
         return
-    from bot.utils.message_editor import get_message_data
-    trial_data = get_message_data('trial_page_text', '🎁 *Пробная подписка*')
-    trial_text = trial_data.get('text', '🎁 *Пробная подписка*')
-    trial_photo = trial_data.get('photo_file_id')
-    await safe_edit_or_send(callback.message, trial_text, reply_markup=trial_sub_kb(), parse_mode='MarkdownV2', photo=trial_photo)
+    from bot.utils.message_editor import send_editor_message
+    await send_editor_message(
+        callback.message,
+        key='trial_page_text',
+        default_text='🎁 *Пробная подписка*',
+        reply_markup=trial_sub_kb(),
+    )
     await callback.answer()
 
 @router.callback_query(F.data == 'trial_activate')

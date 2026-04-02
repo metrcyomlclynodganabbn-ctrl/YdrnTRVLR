@@ -91,6 +91,7 @@ async def collect_daily_stats() -> str:
     payments_total = payments.get('paid_count', 0)
     payments_cents = payments.get('paid_cents', 0)
     payments_stars = payments.get('paid_stars', 0)
+    payments_rub = payments.get('paid_rub', 0)
     payments_pending = payments.get('pending_count', 0)
     
     payments_text = []
@@ -98,6 +99,9 @@ async def collect_daily_stats() -> str:
         payments_val = payments_cents / 100
         payments_str = f"{payments_val:g}".replace('.', ',')
         payments_text.append(f"${payments_str}")
+    if payments_rub > 0:
+        rub_str = f"{payments_rub:g}".replace('.', ',')
+        payments_text.append(f"{rub_str} ₽")
     if payments_stars > 0:
         payments_text.append(f"⭐{payments_stars}")
     payments_sum = " + ".join(payments_text) if payments_text else "0"
@@ -246,21 +250,24 @@ async def send_backup_archive(bot: Bot) -> None:
 async def check_and_send_expiry_notifications(bot: Bot) -> None:
     """
     Проверяет и отправляет уведомления об истекающих ключах.
+    
+    Использует единый MarkdownV2-контракт для текстов из редактора.
+    Динамические подстановки экранируются через escape_md2().
     """
     logger.info("⏳ Запуск проверки истекающих ключей...")
     try:
+        from bot.utils.text import escape_md2
         days = int(get_setting('notification_days', '3'))
         from bot.utils.message_editor import get_message_data
-        notification_data = get_message_data('notification_text',
-            '⚠️ *Ваш VPN-ключ %имяключа% скоро истекает!*\n\n'
-            'Через %дней% дней закончится срок действия вашего ключа.\n\n'
-            'Продлите подписку, чтобы сохранить доступ к VPN без перерыва!'
+        
+        # Дефолтный текст в MarkdownV2
+        default_notification = (
+            '⚠️ *Ваш VPN\\-ключ %имяключа% скоро истекает\\!*\n\n'
+            'Через %дней% дней закончится срок действия вашего ключа\\.\n\n'
+            'Продлите подписку, чтобы сохранить доступ к VPN без перерыва\\!'
         )
-        notification_text = notification_data.get('text',
-            '⚠️ *Ваш VPN-ключ %имяключа% скоро истекает!*\n\n'
-            'Через %дней% дней закончится срок действия вашего ключа.\n\n'
-            'Продлите подписку, чтобы сохранить доступ к VPN без перерыва!'
-        )
+        notification_data = get_message_data('notification_text', default_notification)
+        notification_text = notification_data.get('text', default_notification)
         notification_photo = notification_data.get('photo_file_id')
         
         expiring_keys = get_expiring_keys(days)
@@ -276,8 +283,12 @@ async def check_and_send_expiry_notifications(bot: Bot) -> None:
             if is_notification_sent_today(vpn_key_id):
                 continue
             
-            # Формируем текст с подстановкой дней и имени ключа
-            text = notification_text.replace('%дней%', str(days_left)).replace('%имяключа%', str(keyname))
+            # Подстановка с экранированием динамических значений для MarkdownV2
+            text = notification_text.replace(
+                '%дней%', escape_md2(str(days_left))
+            ).replace(
+                '%имяключа%', escape_md2(str(keyname))
+            )
             
             # Клавиатура с кнопками "Мои ключи" и "На главную"
             builder = InlineKeyboardBuilder()
@@ -292,14 +303,14 @@ async def check_and_send_expiry_notifications(bot: Bot) -> None:
                         photo=notification_photo,
                         caption=text,
                         reply_markup=kb,
-                        parse_mode="Markdown"
+                        parse_mode="MarkdownV2"
                     )
                 else:
                     await bot.send_message(
                         chat_id=user_telegram_id,
                         text=text,
                         reply_markup=kb,
-                        parse_mode="Markdown"
+                        parse_mode="MarkdownV2"
                     )
                 log_notification_sent(vpn_key_id)
                 sent_count += 1

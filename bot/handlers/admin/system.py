@@ -480,7 +480,6 @@ async def edit_text_start(callback: CallbackQuery, state: FSMContext):
     }
     
     current_allowed_types = ['text'] if key == 'key_delivery_text' else ['text', 'photo']
-    parse_mode = 'Markdown' if key == 'key_delivery_text' else None
     
     await show_message_editor(
         callback.message, state,
@@ -488,7 +487,6 @@ async def edit_text_start(callback: CallbackQuery, state: FSMContext):
         back_callback='admin_edit_texts',
         help_text=help_texts.get(key),
         allowed_types=current_allowed_types,
-        parse_mode=parse_mode,
     )
     await callback.answer()
 
@@ -903,12 +901,12 @@ async def confirm_clear_logs(callback: CallbackQuery, state: FSMContext):
     from bot.keyboards.admin import back_button
     
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="✅ Да, стереть", callback_data="admin_clear_logs_do"))
+    builder.row(InlineKeyboardButton(text="✅ Да, очистить", callback_data="admin_clear_logs_do"))
     builder.row(back_button("admin_logs_menu"))
     
     await safe_edit_or_send(callback.message,
-        "🗑️ *Очистка логов*\n\n"
-        "Вы уверены, что хотите полностью стереть файлы логов `bot.log` и `errors.log`?\n"
+        "🧹 *Очистка логов*\n\n"
+        "Вы уверены, что хотите полностью стереть старые файлы логов и очистить текущие `bot.log` и `errors.log`?\n"
         "Это безвозвратное действие.",
         parse_mode="Markdown",
         reply_markup=builder.as_markup()
@@ -923,17 +921,23 @@ async def do_clear_logs(callback: CallbackQuery, state: FSMContext):
         return
     
     try:
-        log_path = "logs/bot.log"
-        if os.path.exists(log_path):
-            with open(log_path, 'w', encoding='utf-8') as f:
-                f.write("") 
+        import glob
         
-        error_log_path = "logs/errors.log"
-        if os.path.exists(error_log_path):
-            with open(error_log_path, 'w', encoding='utf-8') as f:
-                f.write("")
+        # Очищаем текущие файлы
+        for log_path in ["logs/bot.log", "logs/errors.log"]:
+            if os.path.exists(log_path):
+                with open(log_path, 'w', encoding='utf-8') as f:
+                    f.write("") 
+                    
+        # Удаляем старые лог-файлы (bot.log.1, bot.log.2, и т.д.)
+        for old_log in glob.glob("logs/bot.log.*"):
+            if os.path.exists(old_log):
+                try:
+                    os.remove(old_log)
+                except Exception as e:
+                    logger.error(f"Не удалось удалить старый лог {old_log}: {e}")
                 
-        await callback.answer("🗑️ Логи успешно очищены!", show_alert=True)
+        await callback.answer("🧹 Логи успешно очищены!", show_alert=True)
     except Exception as e:
         logger.error(f"Ошибка при очистке логов: {e}")
         await callback.answer(f"❌ Ошибка: {e}", show_alert=True)

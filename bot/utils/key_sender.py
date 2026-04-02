@@ -10,6 +10,19 @@ from bot.utils.key_generator import generate_link, generate_json, generate_qr_co
 
 logger = logging.getLogger(__name__)
 
+
+# Дефолтный текст выдачи ключа в формате MarkdownV2
+DEFAULT_KEY_DELIVERY_TEXT = (
+    "✅ *Ваш VPN\\-ключ\\!*\n\n"
+    "%ключ%\n"
+    "☝️ Нажмите, чтобы скопировать\\.\n\n"
+    "📱 *Инструкция:*\n"
+    "1\\. Скопируйте ссылку или отсканируйте QR\\-код\\.\n"
+    "2\\. Импортируйте в свой клиент\\. Какие именно клиент подходит смотри в инструкции по кнопке ниже\\.\n"
+    "3\\. Нажмите подключиться\\!"
+)
+
+
 async def send_key_with_qr(
     messageable, 
     key_data: dict, 
@@ -19,12 +32,16 @@ async def send_key_with_qr(
     """
     Отправляет пользователю ключ с QR-кодом и файлом конфигурации.
     
+    Использует единый MarkdownV2-контракт для текстов из редактора.
+    
     Args:
         messageable: Объект Message или CallbackQuery, куда отвечать
         key_data: Данные ключа из БД (должны содержать server_id, panel_email, client_uuid)
         key_manage_markup: Клавиатура управления ключом
         is_new: Является ли ключ только что созданным
     """
+    from bot.utils.text import escape_md2
+    
     try:
         # Проверяем наличие необходимых данных
         if not key_data.get('server_id') or not key_data.get('panel_email'):
@@ -44,11 +61,11 @@ async def send_key_with_qr(
             # отправляем просто UUID (как раньше)
             uuid = key_data.get('client_uuid', 'Unknown')
             text = (
-                f"📋 *Ваш VPN-ключ*\n\n"
+                f"📋 *Ваш VPN\\-ключ*\n\n"
                 f"```\n{uuid}\n```\n\n"
-                "☝️ Нажмите на ключ, чтобы скопировать.\n"
-                "⚠️ Не удалось получить полную конфигурацию (сервер недоступен).\n"
-                "Попробуйте позже."
+                "☝️ Нажмите на ключ, чтобы скопировать\\.\n"
+                "⚠️ Не удалось получить полную конфигурацию \\(сервер недоступен\\)\\.\n"
+                "Попробуйте позже\\."
             )
             await _send_text(messageable, text, key_manage_markup)
             return
@@ -60,34 +77,26 @@ async def send_key_with_qr(
         json_config = generate_json(config)
         qr_bytes = generate_qr_code(link)
         
-        # 3. Формируем сообщение
+        # 3. Формируем сообщение через единый helper
         from bot.utils.message_editor import get_message_data
         
-        default_key_delivery = (
-            "✅ *Ваш VPN-ключ!*\n\n"
-            "%ключ%\n"
-            "☝️ Нажмите, чтобы скопировать.\n\n"
-            "📱 *Инструкция:*\n"
-            "1. Скопируйте ссылку или отсканируйте QR-код.\n"
-            "2. Импортируйте в свой клиент. Какие именно клиент подходит смотри в инструкции по кнопке ниже.\n"
-            "3. Нажмите подключиться!"
-        )
+        delivery_data = get_message_data('key_delivery_text', DEFAULT_KEY_DELIVERY_TEXT)
+        base_caption = delivery_data.get('text', DEFAULT_KEY_DELIVERY_TEXT)
         
-        delivery_data = get_message_data('key_delivery_text', default_key_delivery)
-        base_caption = delivery_data.get('text', default_key_delivery)
-        
-        # Заменяем тег %ключ% на код-блок
+        # Подстановка %ключ% — внутри ``` экранирование не нужно
         key_snippet = f"```\n{link}\n```"
         caption = base_caption.replace('%ключ%', key_snippet)
+        # Также проверяем экранированный вариант плейсхолдера (если текст из md_text)
+        caption = caption.replace('%ключ%', key_snippet)
         
         # Если caption слишком длинный (Telegram limit 1024), сокращаем
         if len(caption) > 1024:
-             title = "✅ *Ваш новый VPN-ключ!*" if is_new else "📋 *Ваш VPN-ключ*"
+             title = "✅ *Ваш новый VPN\\-ключ\\!*" if is_new else "📋 *Ваш VPN\\-ключ*"
              caption = (
                 f"{title}\n\n"
-                "👇 *Ваша ссылка доступа (нажмите для копирования):*\n"
+                "👇 *Ваша ссылка доступа \\(нажмите для копирования\\):*\n"
                 f"`{link}`\n\n"
-                "📸 Отсканируйте QR-код для быстрого подключения."
+                "📸 Отсканируйте QR\\-код для быстрого подключения\\."
              )
 
         # 4. Отправляем фото с QR и ссылкой
@@ -102,14 +111,10 @@ async def send_key_with_qr(
         await send_func(
             photo=photo,
             caption=caption,
-            parse_mode="Markdown"
+            parse_mode="MarkdownV2"
         )
         
-        # Отправляем файл и клавиатуру отдельным сообщением, если это callback
-        # Или тем же, если позволяет контекст. 
-        # Но answer_photo не поддерживает редактирование предыдущего текстового сообщения в фото.
-        # Поэтому если мы пришли из callback (кнопка "Показать"), старое сообщение лучше удалить или изменить.
-        
+        # Отправляем файл и клавиатуру отдельным сообщением
         if hasattr(messageable, 'message'): # Это CallbackQuery
             try:
                 await messageable.message.delete()
@@ -121,9 +126,9 @@ async def send_key_with_qr(
 
         await answer_func(
             document=config_file,
-            caption="📂 *Файл конфигурации* (для ручного импорта)",
+            caption="📂 *Файл конфигурации* \\(для ручного импорта\\)",
             reply_markup=key_manage_markup,
-            parse_mode="Markdown"
+            parse_mode="MarkdownV2"
         )
 
     except Exception as e:
@@ -148,15 +153,12 @@ async def _send_error(messageable, text, markup):
 
 
 async def _send_text(messageable, text, markup):
-    """Отправляет текстовое сообщение (fallback при отсутствии фото)."""
+    """Отправляет текстовое сообщение (fallback при отсутствии фото). MarkdownV2."""
     from bot.utils.text import safe_edit_or_send
     if hasattr(messageable, 'text') or hasattr(messageable, 'photo'):
-        # Это Message
-        await safe_edit_or_send(messageable, text, reply_markup=markup, parse_mode="Markdown")
+        await safe_edit_or_send(messageable, text, reply_markup=markup, parse_mode="MarkdownV2")
     elif hasattr(messageable, 'message'):
-        # Это CallbackQuery
-        await safe_edit_or_send(messageable.message, text, reply_markup=markup, parse_mode="Markdown")
+        await safe_edit_or_send(messageable.message, text, reply_markup=markup, parse_mode="MarkdownV2")
     else:
         func = messageable.answer if hasattr(messageable, 'answer') else messageable.message.answer
-        await func(text, reply_markup=markup, parse_mode="Markdown")
-
+        await func(text, reply_markup=markup, parse_mode="MarkdownV2")

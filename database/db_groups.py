@@ -122,7 +122,10 @@ def delete_group(group_id: int) -> bool:
     with get_db() as conn:
         # Переносим тарифы и серверы в «Основную»
         conn.execute("UPDATE tariffs SET group_id = 1 WHERE group_id = ?", (group_id,))
-        conn.execute("UPDATE servers SET group_id = 1 WHERE group_id = ?", (group_id,))
+        conn.execute("""
+            INSERT OR IGNORE INTO server_groups (server_id, group_id)
+            SELECT server_id, 1 FROM server_groups WHERE group_id = ?
+        """, (group_id,))
         
         cursor = conn.execute("DELETE FROM tariff_groups WHERE id = ?", (group_id,))
         success = cursor.rowcount > 0
