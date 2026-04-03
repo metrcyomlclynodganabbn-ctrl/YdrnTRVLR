@@ -12,6 +12,7 @@ import asyncio
 import json
 import logging
 import os
+import shutil
 import zipfile
 from datetime import datetime, time as dt_time, timedelta
 from io import BytesIO
@@ -35,6 +36,13 @@ logger = logging.getLogger(__name__)
 
 # Путь к базе данных бота
 BOT_DB_PATH = os.path.join(os.path.dirname(__file__), '..', '..', 'database', 'vpn_bot.db')
+
+# Корневая папка проекта и папка для локальных бэкапов
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+BACKUP_DIR = os.path.join(PROJECT_ROOT, 'backup')
+
+# Сколько дней хранить локальные бэкапы
+BACKUP_RETENTION_DAYS = 7
 
 
 async def collect_daily_stats() -> str:
@@ -210,14 +218,111 @@ async def create_backup_archive() -> Optional[bytes]:
         return None
 
 
+async def save_local_backup() -> None:
+    """
+    Сохраняет локальные копии всех баз данных в папку backup/YYYY-MM-DD/.
+    
+    Файлы хранятся неархивированными (.db) для прямого доступа
+    через sqlite3 из Python без необходимости распаковки.
+    """
+    today = datetime.now().strftime("%Y-%m-%d")
+    day_dir = os.path.join(BACKUP_DIR, today)
+    
+    try:
+        os.makedirs(day_dir, exist_ok=True)
+        
+        # Сохраняем базу данных бота
+        bot_db_path = os.path.abspath(BOT_DB_PATH)
+        if os.path.exists(bot_db_path):
+            dest = os.path.join(day_dir, 'vpn_bot.db')
+            shutil.copy2(bot_db_path, dest)
+            logger.info(f"Локальный бэкап: vpn_bot.db ({os.path.getsize(dest)} байт)")
+        else:
+            logger.warning(f"База данных бота не найдена: {bot_db_path}")
+        
+        # Скачиваем базы VPN-серверов
+        servers = get_all_servers()
+        for server in servers:
+            if not server.get('is_active'):
+                continue
+            
+            try:
+                client = get_client_from_server_data(server)
+                backup_data = await client.get_database_backup()
+                
+                safe_name = server['name'].replace(' ', '_').replace('/', '_')
+                filename = f"server_{safe_name}_x-ui.db"
+                dest = os.path.join(day_dir, filename)
+                
+                with open(dest, 'wb') as f:
+                    f.write(backup_data)
+                
+                logger.info(f"Локальный бэкап: {filename} ({len(backup_data)} байт)")
+                
+            except VPNAPIError as e:
+                logger.warning(f"Не удалось скачать бэкап сервера {server['name']}: {e}")
+            except Exception as e:
+                logger.error(f"Ошибка при скачивании бэкапа сервера {server['name']}: {e}")
+        
+        logger.info(f"✅ Локальные бэкапы сохранены в {day_dir}")
+        
+    except Exception as e:
+        logger.error(f"Ошибка при сохранении локальных бэкапов: {e}")
+
+
+def cleanup_old_backups() -> None:
+    """
+    Удаляет папки с бэкапами старше BACKUP_RETENTION_DAYS (7 дней).
+    
+    Проверяет имена подпапок в формате YYYY-MM-DD и удаляет те,
+    чья дата старше порога хранения.
+    """
+    if not os.path.exists(BACKUP_DIR):
+        return
+    
+    cutoff_date = datetime.now() - timedelta(days=BACKUP_RETENTION_DAYS)
+    removed_count = 0
+    
+    try:
+        for entry in os.listdir(BACKUP_DIR):
+            entry_path = os.path.join(BACKUP_DIR, entry)
+            if not os.path.isdir(entry_path):
+                continue
+            
+            # Проверяем формат имени папки YYYY-MM-DD
+            try:
+                folder_date = datetime.strptime(entry, "%Y-%m-%d")
+            except ValueError:
+                continue  # Пропускаем папки с нестандартным именем
+            
+            if folder_date < cutoff_date:
+                shutil.rmtree(entry_path)
+                removed_count += 1
+                logger.info(f"Удалён старый бэкап: {entry}")
+        
+        if removed_count > 0:
+            logger.info(f"🗑️ Удалено старых бэкапов: {removed_count}")
+    
+    except Exception as e:
+        logger.error(f"Ошибка при очистке старых бэкапов: {e}")
+
+
 async def send_backup_archive(bot: Bot) -> None:
     """
     Создаёт и отправляет архив бэкапов всем администраторам.
+    Также сохраняет локальные копии и чистит старые бэкапы.
     
     Args:
         bot: Экземпляр бота
     """
     try:
+        # Сохраняем локальные бэкапы (неархивированные .db файлы)
+        await save_local_backup()
+        
+        # Удаляем бэкапы старше 7 дней
+        cleanup_old_backups()
+        
+        # Создаём ZIP-архив для отправки в Telegram
         archive_data = await create_backup_archive()
         
         if not archive_data:

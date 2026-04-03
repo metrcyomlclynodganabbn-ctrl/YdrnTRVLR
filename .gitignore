@@ -16,6 +16,9 @@ AGENTS.md
 # База данных (создаётся автоматически при запуске)
 database/vpn_bot.db
 
+# Локальные бэкапы (создаются автоматически планировщиком)
+backup/
+
 # Virtual Environment
 venv/
 env/
