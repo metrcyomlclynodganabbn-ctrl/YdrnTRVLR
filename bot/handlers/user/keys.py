@@ -226,7 +226,7 @@ async def key_show_handler(callback: CallbackQuery):
 @router.callback_query(F.data.startswith('key_renew:'))
 async def key_renew_select_payment(callback: CallbackQuery):
     """Выбор способа оплаты для продления (сразу, без тарифа)."""
-    from database.requests import get_all_tariffs, get_key_details_for_user, get_user_internal_id, is_crypto_configured, is_stars_enabled, is_cards_enabled, get_setting, create_pending_order, get_crypto_integration_mode, is_referral_enabled, get_referral_reward_type, get_user_balance
+    from database.requests import get_all_tariffs, get_key_details_for_user, get_user_internal_id, is_crypto_configured, is_stars_enabled, is_cards_enabled, get_setting, create_pending_order, get_crypto_integration_mode, is_referral_enabled, get_referral_reward_type, get_user_balance, is_demo_payment_enabled
     from bot.services.billing import build_crypto_payment_url, extract_item_id_from_url
     from bot.keyboards.user import renew_payment_method_kb, back_and_home_kb
     key_id = int(callback.data.split(':')[1])
@@ -238,9 +238,10 @@ async def key_renew_select_payment(callback: CallbackQuery):
     crypto_configured = is_crypto_configured()
     stars_enabled = is_stars_enabled()
     cards_enabled = is_cards_enabled()
+    demo_enabled = is_demo_payment_enabled()
     from database.requests import is_yookassa_qr_configured
     yookassa_qr = is_yookassa_qr_configured()
-    if not crypto_configured and (not stars_enabled) and (not cards_enabled) and (not yookassa_qr):
+    if not crypto_configured and (not stars_enabled) and (not cards_enabled) and (not yookassa_qr) and (not demo_enabled):
         await safe_edit_or_send(callback.message, '💳 <b>Продление ключа</b>\n\n😔 Способы оплаты временно недоступны.\nПопробуйте позже.', reply_markup=back_and_home_kb(back_callback=f'key:{key_id}'))
         await callback.answer()
         return
@@ -263,7 +264,7 @@ async def key_renew_select_payment(callback: CallbackQuery):
             balance_cents = get_user_balance(user_id)
             if balance_cents > 0:
                 show_balance_button = True
-    await safe_edit_or_send(callback.message, f"💳 <b>Продление ключа</b>\n\n🔑 Ключ: <b>{escape_html(key['display_name'])}</b>\n\nВыберите способ оплаты:", reply_markup=renew_payment_method_kb(key_id=key_id, crypto_url=crypto_url, crypto_mode=crypto_mode, crypto_configured=crypto_configured, stars_enabled=stars_enabled, cards_enabled=cards_enabled, yookassa_qr_enabled=yookassa_qr, show_balance_button=show_balance_button))
+    await safe_edit_or_send(callback.message, f"💳 <b>Продление ключа</b>\n\n🔑 Ключ: <b>{escape_html(key['display_name'])}</b>\n\nВыберите способ оплаты:", reply_markup=renew_payment_method_kb(key_id=key_id, crypto_url=crypto_url, crypto_mode=crypto_mode, crypto_configured=crypto_configured, stars_enabled=stars_enabled, cards_enabled=cards_enabled, yookassa_qr_enabled=yookassa_qr, show_balance_button=show_balance_button, demo_enabled=demo_enabled))
     await callback.answer()
 
 @router.callback_query(F.data.startswith('key_replace:'))

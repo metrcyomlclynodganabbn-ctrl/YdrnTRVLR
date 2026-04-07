@@ -21,7 +21,8 @@ from database.requests import (
     is_cards_enabled,
     is_yookassa_qr_enabled,
     get_crypto_integration_mode,
-    set_crypto_integration_mode
+    set_crypto_integration_mode,
+    is_demo_payment_enabled
 )
 from bot.states.admin_states import (
     AdminStates,
@@ -98,6 +99,7 @@ async def show_payments_menu(callback: CallbackQuery, state: FSMContext):
     crypto = is_crypto_enabled()
     cards = is_cards_enabled()
     qr = is_yookassa_qr_enabled()
+    demo = is_demo_payment_enabled()
 
     text = (
         "💳 <b>Настройки оплаты</b>\n\n"
@@ -129,11 +131,16 @@ async def show_payments_menu(callback: CallbackQuery, state: FSMContext):
     else:
         text += "⚪ <b>QR-оплата (ЮКасса прямая/СБП)</b>\n"
 
+    if demo:
+        text += "🟢 <b>Демо оплата (РФ)</b>\n"
+    else:
+        text += "⚪ <b>Демо оплата (РФ)</b>\n"
+
     monthly_reset = get_setting('monthly_traffic_reset_enabled', '0') == '1'
 
     await safe_edit_or_send(callback.message, 
         text,
-        reply_markup=payments_menu_kb(stars, crypto, cards, qr, monthly_reset)
+        reply_markup=payments_menu_kb(stars, crypto, cards, qr, monthly_reset, demo)
     )
     await callback.answer()
 
@@ -174,6 +181,28 @@ async def toggle_stars(callback: CallbackQuery, state: FSMContext):
     
     status = "включены ⭐" if new_value == '1' else "выключены"
     await callback.answer(f"Telegram Stars {status}")
+    
+    # Обновляем экран
+    await show_payments_menu(callback, state)
+
+
+# ============================================================================
+# TOGGLE DEMO PAYMENT
+# ============================================================================
+
+@router.callback_query(F.data == "admin_payments_toggle_demo")
+async def toggle_demo(callback: CallbackQuery, state: FSMContext):
+    """Переключает демо оплату РФ картой."""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("⛔ Доступ запрещён", show_alert=True)
+        return
+    
+    current = is_demo_payment_enabled()
+    new_value = '0' if current else '1'
+    set_setting('demo_payment_enabled', new_value)
+    
+    status = "включена" if new_value == '1' else "выключена"
+    await callback.answer(f"Демо оплата {status}")
     
     # Обновляем экран
     await show_payments_menu(callback, state)

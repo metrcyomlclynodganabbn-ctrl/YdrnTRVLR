@@ -98,7 +98,7 @@ async def finalize_payment_ui(message: Message, state: FSMContext, text: str, or
 async def renew_invoice_cancel_handler(callback: CallbackQuery):
     """Отмена инвойса и возврат к выбору способа оплаты."""
     from bot.keyboards.user import renew_payment_method_kb
-    from database.requests import get_key_details_for_user, get_all_tariffs, is_crypto_configured, is_stars_enabled, is_cards_enabled, get_user_internal_id, create_pending_order, get_setting, is_yookassa_qr_configured, get_crypto_integration_mode, is_referral_enabled, get_referral_reward_type, get_user_balance
+    from database.requests import get_key_details_for_user, get_all_tariffs, is_crypto_configured, is_stars_enabled, is_cards_enabled, get_user_internal_id, create_pending_order, get_setting, is_yookassa_qr_configured, get_crypto_integration_mode, is_referral_enabled, get_referral_reward_type, get_user_balance, is_demo_payment_enabled
     from bot.services.billing import build_crypto_payment_url, extract_item_id_from_url
     parts = callback.data.split(':')
     key_id = int(parts[1])
@@ -113,8 +113,9 @@ async def renew_invoice_cancel_handler(callback: CallbackQuery):
     stars_enabled = is_stars_enabled()
     cards_enabled = is_cards_enabled()
     yookassa_qr_enabled = is_yookassa_qr_configured()
+    demo_enabled = is_demo_payment_enabled()
     
-    if not crypto_configured and (not stars_enabled) and (not cards_enabled) and (not yookassa_qr_enabled):
+    if not crypto_configured and (not stars_enabled) and (not cards_enabled) and (not yookassa_qr_enabled) and (not demo_enabled):
         await safe_edit_or_send(callback.message, '😔 Способы оплаты временно недоступны.', force_new=True)
         return
 
@@ -150,7 +151,8 @@ async def renew_invoice_cancel_handler(callback: CallbackQuery):
             stars_enabled=stars_enabled,
             cards_enabled=cards_enabled,
             yookassa_qr_enabled=yookassa_qr_enabled,
-            show_balance_button=show_balance_button
+            show_balance_button=show_balance_button,
+            demo_enabled=demo_enabled
         ),
         force_new=True
     )

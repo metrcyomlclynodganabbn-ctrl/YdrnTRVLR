@@ -106,6 +106,18 @@ async def show_editor_help(callback: CallbackQuery, state: FSMContext):
     await state.update_data(editor_message=result)
     await callback.answer()
 
+@router.callback_query(F.data == "msg_editor_noop_alert")
+async def show_editor_noop_alert(callback: CallbackQuery):
+    """Показывает всплывающее пояснение, если нет отдельной справки."""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("⛔ Доступ запрещён", show_alert=True)
+        return
+        
+    await callback.answer(
+        "📝 Чтобы изменить текст, просто отправьте боту новое сообщение.\n\n"
+        "Вы можете прикрепить фото/видео.",
+        show_alert=True
+    )
 
 @router.callback_query(F.data == "msg_editor_back_to_preview")
 async def back_to_preview(callback: CallbackQuery, state: FSMContext):

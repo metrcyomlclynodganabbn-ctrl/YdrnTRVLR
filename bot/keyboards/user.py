@@ -114,7 +114,8 @@ def buy_key_kb(
     cards_enabled: bool = False,
     yookassa_qr_enabled: bool = False,
     order_id: str = None,
-    show_balance_button: bool = False
+    show_balance_button: bool = False,
+    demo_enabled: bool = False
 ) -> InlineKeyboardMarkup:
     """
     Клавиатура для страницы «Купить ключ».
@@ -136,9 +137,9 @@ def buy_key_kb(
     if crypto_configured:
         if crypto_mode == 'simple':
             cb_data = f"pay_crypto:{order_id}" if order_id else "pay_crypto"
-            builder.row(InlineKeyboardButton(text="💰 Оплатить USDT", callback_data=cb_data))
+            builder.row(InlineKeyboardButton(text="🪙 Оплатить USDT", callback_data=cb_data))
         elif crypto_url:
-            builder.row(InlineKeyboardButton(text="💰 Оплатить USDT", url=crypto_url))
+            builder.row(InlineKeyboardButton(text="🪙 Оплатить USDT", url=crypto_url))
 
     # Stars — переход к выбору тарифа
     if stars_enabled:
@@ -160,12 +161,19 @@ def buy_key_kb(
             InlineKeyboardButton(text="📱 QR-оплата (Карта/СБП)", callback_data="pay_qr")
         )
 
+    # Демо оплата (РФ) — переход к выбору тарифа
+    if demo_enabled:
+        cb_data = f"demo_tariffs:{order_id}" if order_id else "demo_tariffs"
+        builder.row(
+            InlineKeyboardButton(text="🏦 Демо оплата (РФ карта)", callback_data=cb_data)
+        )
+
     # Кнопка «Использовать баланс» — только при выполнении всех трёх условий
     # (is_referral_enabled + reward_type='balance' + personal_balance > 0)
     # На этом экране больше ничего про баланс не показывать
     if show_balance_button:
         builder.row(
-            InlineKeyboardButton(text="💰 Использовать баланс", callback_data="pay_use_balance")
+            InlineKeyboardButton(text="💎 Использовать баланс", callback_data="pay_use_balance")
         )
 
     # Кнопка «На главную» — последний ряд
@@ -219,7 +227,7 @@ def balance_payment_kb(
         suffix = f":{tariff_id}:{key_id}" if key_id else f":{tariff_id}"
         builder.row(
             InlineKeyboardButton(
-                text="✅ Оплатить балансом",
+                text="💎 Оплатить балансом",
                 callback_data=f"pay_with_balance{suffix}"
             )
         )
@@ -259,7 +267,7 @@ def balance_payment_kb(
     return builder.as_markup()
 
 
-def tariff_select_kb(tariffs: list, back_callback: str = "buy_key", order_id: str = None, is_cards: bool = False, is_crypto: bool = False, is_balance: bool = False, is_qr: bool = False, groups_data: list = None) -> InlineKeyboardMarkup:
+def tariff_select_kb(tariffs: list, back_callback: str = "buy_key", order_id: str = None, is_cards: bool = False, is_crypto: bool = False, is_balance: bool = False, is_qr: bool = False, groups_data: list = None, is_demo: bool = False) -> InlineKeyboardMarkup:
     """
     Клавиатура выбора тарифа для оплаты Stars, Картами, Криптой или Балансом.
     
@@ -271,6 +279,7 @@ def tariff_select_kb(tariffs: list, back_callback: str = "buy_key", order_id: st
         is_crypto: True если выбор тарифа для оплаты криптой (простой режим)
         is_balance: True если выбор тарифа для оплаты с баланса
         is_qr: True если выбор тарифа для QR-оплаты (ЮКасса)
+        is_demo: True если выбор тарифа для демонстрационной РФ оплаты
         groups_data: Список dict с ключами 'group' и 'tariffs' для группировки.
                      Если None — tariffs отображаются без группировки.
     """
@@ -284,7 +293,7 @@ def tariff_select_kb(tariffs: list, back_callback: str = "buy_key", order_id: st
                 price_str = f"{price_usd:g}".replace('.', ',')
                 price_display = f"${price_str}"
                 prefix = "crypto_pay"
-                emoji = '💰'
+                emoji = '🪙'
             elif is_cards:
                 price_rub = tariff.get('price_rub')
                 if price_rub is None or price_rub <= 1:
@@ -292,6 +301,13 @@ def tariff_select_kb(tariffs: list, back_callback: str = "buy_key", order_id: st
                 price_display = f"{price_rub} ₽"
                 prefix = "cards_pay"
                 emoji = '💳'
+            elif is_demo:
+                price_rub = tariff.get('price_rub')
+                if price_rub is None or price_rub <= 1:
+                    continue
+                price_display = f"{price_rub} ₽"
+                prefix = "demo_pay"
+                emoji = '🏦'
             elif is_qr:
                 price_rub = tariff.get('price_rub')
                 if price_rub is None or price_rub <= 0:
@@ -305,7 +321,7 @@ def tariff_select_kb(tariffs: list, back_callback: str = "buy_key", order_id: st
                     continue
                 price_display = f"{price_rub} ₽"
                 prefix = "balance_pay"
-                emoji = '💰'
+                emoji = '💎'
             else:
                 price_display = f"{tariff['price_stars']} звёзд"
                 prefix = "stars_pay"
@@ -487,7 +503,7 @@ def key_show_kb(key_id: int = None) -> InlineKeyboardMarkup:
     return key_issued_kb()
 
 
-def renew_tariff_select_kb(tariffs: list, key_id: int, order_id: str = None, is_cards: bool = False, is_crypto: bool = False, is_balance: bool = False, is_qr: bool = False) -> InlineKeyboardMarkup:
+def renew_tariff_select_kb(tariffs: list, key_id: int, order_id: str = None, is_cards: bool = False, is_crypto: bool = False, is_balance: bool = False, is_qr: bool = False, is_demo: bool = False) -> InlineKeyboardMarkup:
     """
     Клавиатура выбора тарифа для продления ключа (для Stars, Карт или Баланса).
     
@@ -499,6 +515,7 @@ def renew_tariff_select_kb(tariffs: list, key_id: int, order_id: str = None, is_
         is_crypto: True если выбор тарифа для оплаты криптой (простой режим)
         is_balance: True если выбор тарифа для оплаты с баланса
         is_qr: True если выбор тарифа для QR-оплаты (ЮКасса)
+        is_demo: True если выбор тарифа для демонстрационной РФ оплаты
     """
     builder = InlineKeyboardBuilder()
     
@@ -508,7 +525,7 @@ def renew_tariff_select_kb(tariffs: list, key_id: int, order_id: str = None, is_
             price_str = f"{price_usd:g}".replace('.', ',')
             price_display = f"${price_str}"
             prefix = "renew_pay_crypto"
-            emoji = '💰'
+            emoji = '🪙'
         elif is_cards:
             price_rub = tariff.get('price_rub')
             if price_rub is None or price_rub <= 1:
@@ -523,13 +540,20 @@ def renew_tariff_select_kb(tariffs: list, key_id: int, order_id: str = None, is_
             price_display = f"{price_rub} ₽"
             prefix = "renew_pay_qr"
             emoji = '📱'
+        elif is_demo:
+            price_rub = tariff.get('price_rub')
+            if price_rub is None or price_rub <= 1:
+                continue
+            price_display = f"{price_rub} ₽"
+            prefix = "renew_demo_pay"
+            emoji = '🏦'
         elif is_balance:
             price_rub = tariff.get('price_rub')
             if price_rub is None or price_rub <= 1:
                 continue
             price_display = f"{price_rub} ₽"
             prefix = "balance_pay"
-            emoji = '💰'
+            emoji = '💎'
         else:
             price_display = f"{tariff['price_stars']} звёзд"
             prefix = "renew_pay_stars"
@@ -565,7 +589,8 @@ def renew_payment_method_kb(
     stars_enabled: bool = False,
     cards_enabled: bool = False,
     yookassa_qr_enabled: bool = False,
-    show_balance_button: bool = False
+    show_balance_button: bool = False,
+    demo_enabled: bool = False
 ) -> InlineKeyboardMarkup:
     """
     Клавиатура выбора способа оплаты для продления (первый шаг).
@@ -586,11 +611,11 @@ def renew_payment_method_kb(
     if crypto_configured:
         if crypto_mode == 'simple':
             builder.row(
-                InlineKeyboardButton(text="💰 Оплатить USDT", callback_data=f"renew_crypto_tariff:{key_id}")
+                InlineKeyboardButton(text="🪙 Оплатить USDT", callback_data=f"renew_crypto_tariff:{key_id}")
             )
         elif crypto_url:
             builder.row(
-                InlineKeyboardButton(text="💰 Оплатить USDT", url=crypto_url)
+                InlineKeyboardButton(text="🪙 Оплатить USDT", url=crypto_url)
             )
 
     # Stars — переход к выбору тарифа
@@ -620,12 +645,21 @@ def renew_payment_method_kb(
             )
         )
 
+    # Демо оплата (РФ) — переход к выбору тарифа
+    if demo_enabled:
+        builder.row(
+            InlineKeyboardButton(
+                text="🏦 Демо оплата (РФ карта)",
+                callback_data=f"renew_demo_tariffs:{key_id}"
+            )
+        )
+
     # Кнопка «Использовать баланс» — только при выполнении всех трёх условий
     # (is_referral_enabled + reward_type='balance' + personal_balance > 0)
     # На этом экране больше ничего про баланс не показывать
     if show_balance_button:
         builder.row(
-            InlineKeyboardButton(text="💰 Использовать баланс", callback_data=f"pay_use_balance:{key_id}")
+            InlineKeyboardButton(text="💎 Использовать баланс", callback_data=f"pay_use_balance:{key_id}")
         )
 
     # Последний ряд: назад и на главную

@@ -20,7 +20,7 @@ router = Router()
 @router.callback_query(F.data == 'buy_key')
 async def buy_key_handler(callback: CallbackQuery):
     """Страница «Купить ключ» с условиями и способами оплаты."""
-    from database.requests import is_crypto_configured, is_stars_enabled, is_cards_enabled, get_setting, get_user_internal_id, get_all_tariffs, create_pending_order, is_yookassa_qr_configured, get_crypto_integration_mode, is_referral_enabled, get_referral_reward_type, get_user_balance
+    from database.requests import is_crypto_configured, is_stars_enabled, is_cards_enabled, get_setting, get_user_internal_id, get_all_tariffs, create_pending_order, is_yookassa_qr_configured, get_crypto_integration_mode, is_referral_enabled, get_referral_reward_type, get_user_balance, is_demo_payment_enabled
     from bot.services.billing import build_crypto_payment_url, extract_item_id_from_url
     from bot.keyboards.user import buy_key_kb
     from bot.keyboards.admin import home_only_kb
@@ -47,7 +47,8 @@ async def buy_key_handler(callback: CallbackQuery):
             balance_cents = get_user_balance(user_id)
             if balance_cents > 0:
                 show_balance_button = True
-    if not crypto_configured and (not stars_enabled) and (not cards_enabled) and (not yookassa_qr):
+    demo_enabled = is_demo_payment_enabled()
+    if not crypto_configured and (not stars_enabled) and (not cards_enabled) and (not yookassa_qr) and (not demo_enabled):
         await safe_edit_or_send(callback.message, '💳 <b>Купить ключ</b>\n\n😔 К сожалению, сейчас оплата недоступна.\n\nПопробуйте позже или обратитесь в поддержку.', reply_markup=home_only_kb())
         await callback.answer()
         return
@@ -56,7 +57,7 @@ async def buy_key_handler(callback: CallbackQuery):
     prepayment_text = prepayment_data.get('text', '') or ''
     # Добавляем приглашение выбрать способ оплаты (HTML)
     text_override = f'{prepayment_text}\n\nВыберите способ оплаты:' if prepayment_text else 'Выберите способ оплаты:'
-    kb = buy_key_kb(crypto_url=crypto_url, crypto_mode=crypto_mode, crypto_configured=crypto_configured, stars_enabled=stars_enabled, cards_enabled=cards_enabled, yookassa_qr_enabled=yookassa_qr, order_id=existing_order_id, show_balance_button=show_balance_button)
+    kb = buy_key_kb(crypto_url=crypto_url, crypto_mode=crypto_mode, crypto_configured=crypto_configured, stars_enabled=stars_enabled, cards_enabled=cards_enabled, yookassa_qr_enabled=yookassa_qr, order_id=existing_order_id, show_balance_button=show_balance_button, demo_enabled=demo_enabled)
     try:
         await send_editor_message(callback.message, data=prepayment_data, reply_markup=kb, text_override=text_override)
     except Exception:

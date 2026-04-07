@@ -16,7 +16,7 @@ async def _show_balance_payment_screen(callback: CallbackQuery, state: FSMContex
     """
     Показать экран оплаты с учётом баланса по ТЗ.
     
-    Вызывается по кнопке «💰 Использовать баланс».
+    Вызывается по кнопке «💎 Использовать баланс».
     
     Расчёт:
         balance_to_deduct = min(balance, price)
@@ -42,7 +42,7 @@ async def _show_balance_payment_screen(callback: CallbackQuery, state: FSMContex
     balance_str = _format_price_compact(balance_cents)
     deduct_str = _format_price_compact(balance_to_deduct)
     remaining_str = _format_price_compact(remaining_cents)
-    text = f"💳 <b>Оплата тарифа «{escape_html(tariff['name'])}»</b>\n\n💰 Сумма: {price_str}\n💰 Ваш баланс: {balance_str}\n\n✅ С баланса будет списано: {deduct_str}\n💳 К оплате: {remaining_str}"
+    text = f"💳 <b>Оплата тарифа «{escape_html(tariff['name'])}»</b>\n\n💰 Сумма: {price_str}\n💎 Ваш баланс: {balance_str}\n\n✅ С баланса будет списано: {deduct_str}\n💳 К оплате: {remaining_str}"
     cards_enabled = is_cards_enabled()
     yookassa_qr_enabled = is_yookassa_qr_configured()
     cards_via_yookassa_direct = _is_cards_via_yookassa_direct()
@@ -77,10 +77,10 @@ async def pay_use_balance_buy_handler(callback: CallbackQuery, state: FSMContext
     tariffs = get_all_tariffs(include_hidden=False)
     rub_tariffs = [t for t in tariffs if t.get('price_rub') and t['price_rub'] > 0]
     if not rub_tariffs:
-        await safe_edit_or_send(callback.message, '💰 <b>Оплата с баланса</b>\n\n😔 Нет доступных тарифов с ценой в рублях.', reply_markup=home_only_kb())
+        await safe_edit_or_send(callback.message, '💎 <b>Оплата с баланса</b>\n\n😔 Нет доступных тарифов с ценой в рублях.', reply_markup=home_only_kb())
         await callback.answer()
         return
-    await safe_edit_or_send(callback.message, f'💰 <b>Оплата с баланса</b>\n\nВаш баланс: <b>{_format_price_compact(balance_cents)}</b>\n\nВыберите тариф:', reply_markup=tariff_select_kb(rub_tariffs, back_callback='buy_key', is_balance=True))
+    await safe_edit_or_send(callback.message, f'💎 <b>Оплата с баланса</b>\n\nВаш баланс: <b>{_format_price_compact(balance_cents)}</b>\n\nВыберите тариф:', reply_markup=tariff_select_kb(rub_tariffs, back_callback='buy_key', is_balance=True))
     await callback.answer()
 
 @router.callback_query(F.data.startswith('pay_use_balance:'))
@@ -110,10 +110,10 @@ async def pay_use_balance_renew_handler(callback: CallbackQuery, state: FSMConte
     tariffs = get_tariffs_for_renewal(key.get('tariff_id', 0))
     rub_tariffs = [t for t in tariffs if t.get('price_rub') and t['price_rub'] > 0]
     if not rub_tariffs:
-        await safe_edit_or_send(callback.message, '💰 <b>Оплата с баланса</b>\n\n😔 Нет доступных тарифов с ценой в рублях.', reply_markup=home_only_kb())
+        await safe_edit_or_send(callback.message, '💎 <b>Оплата с баланса</b>\n\n😔 Нет доступных тарифов с ценой в рублях.', reply_markup=home_only_kb())
         await callback.answer()
         return
-    await safe_edit_or_send(callback.message, f"💰 <b>Оплата с баланса</b>\n\n🔑 Ключ: <b>{escape_html(key['display_name'])}</b>\nВаш баланс: <b>{_format_price_compact(balance_cents)}</b>\n\nВыберите тариф:", reply_markup=renew_tariff_select_kb(rub_tariffs, key_id, is_balance=True))
+    await safe_edit_or_send(callback.message, f"💎 <b>Оплата с баланса</b>\n\n🔑 Ключ: <b>{escape_html(key['display_name'])}</b>\nВаш баланс: <b>{_format_price_compact(balance_cents)}</b>\n\nВыберите тариф:", reply_markup=renew_tariff_select_kb(rub_tariffs, key_id, is_balance=True))
     await callback.answer()
 
 @router.callback_query(F.data.startswith('balance_pay:'))

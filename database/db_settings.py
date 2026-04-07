@@ -24,6 +24,7 @@ __all__ = [
     'get_yookassa_credentials',
     'is_trial_enabled',
     'get_trial_tariff_id',
+    'is_demo_payment_enabled',
 ]
 
 def get_setting(key: str, default: Optional[str] = None) -> Optional[str]:
@@ -169,3 +170,7 @@ def get_trial_tariff_id() -> Optional[int]:
     """
     val = get_setting('trial_tariff_id', '')
     return int(val) if val and val.isdigit() else None
+
+def is_demo_payment_enabled() -> bool:
+    """Включена ли демонстрационная оплата РФ картой."""
+    return get_setting('demo_payment_enabled', '0') == '1'

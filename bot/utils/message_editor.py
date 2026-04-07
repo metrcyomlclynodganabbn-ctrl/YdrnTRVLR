@@ -150,7 +150,7 @@ def editor_kb(back_callback: str, has_help: bool = False) -> InlineKeyboardMarku
         builder.row(
             InlineKeyboardButton(
                 text="📝 Отправьте новое сообщение ⬇️",
-                callback_data="noop"
+                callback_data="msg_editor_noop_alert"
             )
         )
     

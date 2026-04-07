@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Optional
 
 from .admin_misc import back_button, home_button, cancel_button
 
-def payments_menu_kb(stars_enabled: bool, crypto_enabled: bool, cards_enabled: bool, qr_enabled: bool=False, monthly_reset_enabled: bool=False) -> InlineKeyboardMarkup:
+def payments_menu_kb(stars_enabled: bool, crypto_enabled: bool, cards_enabled: bool, qr_enabled: bool=False, monthly_reset_enabled: bool=False, demo_enabled: bool=False) -> InlineKeyboardMarkup:
     """
     Главное меню раздела оплат.
 
@@ -14,6 +14,7 @@ def payments_menu_kb(stars_enabled: bool, crypto_enabled: bool, cards_enabled: b
         cards_enabled: Включена ли оплата картами (ЮКасса Telegram Payments)
         qr_enabled: Включена ли прямая QR-оплата ЮКасса
         monthly_reset_enabled: Включён ли ежемесячный автосброс трафика
+        demo_enabled: Включена ли демо-оплата
     """
     builder = InlineKeyboardBuilder()
     stars_status = '✅' if stars_enabled else '❌'
@@ -24,6 +25,8 @@ def payments_menu_kb(stars_enabled: bool, crypto_enabled: bool, cards_enabled: b
     builder.row(InlineKeyboardButton(text=f'💳 Оплата картами (ЮКасса): {cards_status}', callback_data='admin_payments_cards'))
     qr_status = '✅' if qr_enabled else '❌'
     builder.row(InlineKeyboardButton(text=f'📱 QR-оплата (ЮКасса/СБП): {qr_status}', callback_data='admin_payments_qr'))
+    demo_status = '✅' if demo_enabled else '❌'
+    builder.row(InlineKeyboardButton(text=f'💳 Демо оплата (РФ): {demo_status}', callback_data='admin_payments_toggle_demo'))
     reset_status = '✅' if monthly_reset_enabled else '❌'
     builder.row(InlineKeyboardButton(text=f'🔄 Автосброс трафика 1-го числа: {reset_status}', callback_data='admin_toggle_monthly_reset'))
     builder.row(InlineKeyboardButton(text='📂 Группы тарифов', callback_data='admin_groups'))
