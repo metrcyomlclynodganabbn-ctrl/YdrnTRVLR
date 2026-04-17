@@ -38,4 +38,33 @@ def check_unblock_conditions():
     return get_setting('referral_enabled', '0') == '1'
 """
 
-BLOCKING_MESSAGE = ""
+BLOCKING_MESSAGE = (
+    "🔒 <b>Требуется действие!</b>\n\n"
+    "Необходимо переключить режим оплаты криптой на <b>простой</b>.\n\n"
+    "Стандартный режим больше не будет поддерживаться в следующих обновлениях — "
+    "он уже некорректно работает с группами тарифов и не будет работать с промокодами.\n\n"
+    "Как настроить простой режим — смотрите в видео-инструкции:\n"
+    "https://www.youtube.com/watch?v=cK0wX2LKxcs\n\n"
+    "Если вы не используете оплату криптой — просто отключите её в разделе "
+    "⚙️ <b>Настройки</b> → 💳 <b>Способы оплаты</b>.\n\n"
+    "<i>После выполнения одного из условий обновления продолжатся автоматически.</i>"
+)
+
+
+def check_unblock_conditions():
+    """
+    Условие разблокировки:
+    - Оплата криптой отключена (crypto_enabled == 0)
+    - ИЛИ выбран простой режим интеграции (crypto_integration_mode == 'simple')
+    """
+    from database.db_settings import is_crypto_enabled, get_crypto_integration_mode
+
+    # Если крипта вообще выключена — условие выполнено
+    if not is_crypto_enabled():
+        return True
+
+    # Если крипта включена, но режим уже простой — тоже ОК
+    if get_crypto_integration_mode() == 'simple':
+        return True
+
+    return False
