@@ -107,8 +107,6 @@ def support_kb(support_link: str) -> InlineKeyboardMarkup:
 
 
 def buy_key_kb(
-    crypto_url: str = None,
-    crypto_mode: str = 'standard',
     crypto_configured: bool = False,
     stars_enabled: bool = False,
     cards_enabled: bool = False,
@@ -121,8 +119,6 @@ def buy_key_kb(
     Клавиатура для страницы «Купить ключ».
 
     Args:
-        crypto_url: URL для оплаты криптой (только для стандартного режима)
-        crypto_mode: Режим интеграции с Ya.Seller ('simple' или 'standard')
         crypto_configured: Настроена ли крипто-оплата
         stars_enabled: Показывать ли кнопку оплаты Stars
         cards_enabled: Показывать ли кнопку оплаты картой ЮКасса
@@ -135,11 +131,8 @@ def buy_key_kb(
     # Кнопки оплаты (показываем только включённые методы)
     # USDT
     if crypto_configured:
-        if crypto_mode == 'simple':
-            cb_data = f"pay_crypto:{order_id}" if order_id else "pay_crypto"
-            builder.row(InlineKeyboardButton(text="🪙 Оплатить USDT", callback_data=cb_data))
-        elif crypto_url:
-            builder.row(InlineKeyboardButton(text="🪙 Оплатить USDT", url=crypto_url))
+        cb_data = f"pay_crypto:{order_id}" if order_id else "pay_crypto"
+        builder.row(InlineKeyboardButton(text="🪙 Оплатить USDT", callback_data=cb_data))
 
     # Stars — переход к выбору тарифа
     if stars_enabled:
@@ -583,8 +576,6 @@ def renew_tariff_select_kb(tariffs: list, key_id: int, order_id: str = None, is_
 
 def renew_payment_method_kb(
     key_id: int,
-    crypto_url: str = None,
-    crypto_mode: str = 'standard',
     crypto_configured: bool = False,
     stars_enabled: bool = False,
     cards_enabled: bool = False,
@@ -597,8 +588,6 @@ def renew_payment_method_kb(
 
     Args:
         key_id: ID ключа
-        crypto_url: URL для оплаты криптой (с placeholder тарифом)
-        crypto_mode: Режим интеграции с Ya.Seller ('simple' или 'standard')
         crypto_configured: Настроена ли крипто-оплата
         stars_enabled: Доступна ли оплата Stars
         cards_enabled: Доступна ли оплата Картами
@@ -609,14 +598,9 @@ def renew_payment_method_kb(
 
     # USDT
     if crypto_configured:
-        if crypto_mode == 'simple':
-            builder.row(
-                InlineKeyboardButton(text="🪙 Оплатить USDT", callback_data=f"renew_crypto_tariff:{key_id}")
-            )
-        elif crypto_url:
-            builder.row(
-                InlineKeyboardButton(text="🪙 Оплатить USDT", url=crypto_url)
-            )
+        builder.row(
+            InlineKeyboardButton(text="🪙 Оплатить USDT", callback_data=f"renew_crypto_tariff:{key_id}")
+        )
 
     # Stars — переход к выбору тарифа
     if stars_enabled:

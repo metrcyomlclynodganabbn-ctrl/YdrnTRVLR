@@ -259,11 +259,8 @@ async def process_crypto_payment(start_param: str, user_id: Optional[int] = None
     is_internal_order = order_id.startswith("00")
     order = find_order_by_order_id(order_id)
     
-    from database.requests import get_crypto_integration_mode
-    crypto_mode = get_crypto_integration_mode()
-    
-    if order and crypto_mode == 'simple':
-        # Простая интеграция: строго сверяем сумму, переданную в Ya.Seller с тарифом
+    if order:
+        # Сверяем сумму платежа с тарифом
         from database.requests import get_tariff_by_id
         order_tariff = get_tariff_by_id(order['tariff_id'])
         if order_tariff:
@@ -272,23 +269,6 @@ async def process_crypto_payment(start_param: str, user_id: Optional[int] = None
             if received_cents < expected_cents:
                 logger.error(f"Ордер {order_id}: Сумма платежа недостаточна. Ожидалось {expected_cents}, получено {received_cents}")
                 return False, "❌ Сумма платежа не совпадает с тарифом.", None
-    
-    # Если это внутренний ордер (и стандартный режим), но пользователь оплатил другой тариф (выбрал в UI процессинга)
-    elif order and parsed.get('tariff') and parsed['tariff'] != '_':
-        try:
-            tariff_ext_id = int(parsed['tariff'])
-            from database.requests import get_tariff_by_external_id, update_order_tariff
-            real_tariff = get_tariff_by_external_id(tariff_ext_id)
-            
-            # Если тариф найден и он отличается от того, что в ордере (или тарифа нет)
-            if real_tariff and (real_tariff['id'] != order['tariff_id'] or order.get('payment_type') != 'crypto'):
-                logger.info(f"Обновление тарифа ордера {order_id}: {order['tariff_id']} -> {real_tariff['id']} (из callback)")
-                if update_order_tariff(order_id, real_tariff['id'], payment_type='crypto'):
-                    # Перезагружаем ордер из базы, чтобы получить обновленные данные
-                    order = find_order_by_order_id(order_id)
-                    logger.info(f"Ордер {order_id} перезагружен: tariff_id={order['tariff_id']}, period_days={order.get('period_days')}")
-        except Exception as e:
-            logger.error(f"Не удалось обновить тариф из callback: {e}")
     
     if not order:
         if is_internal_order:
@@ -300,49 +280,10 @@ async def process_crypto_payment(start_param: str, user_id: Optional[int] = None
         
         logger.info(f"Новый внешний ордер: {order_id}")
         
-        # Нам нужен тариф для создания ордера
-        tariff_id = None
-        amount_cents = 0
-        amount_stars = 0
-        period_days = 30 # Default
-        
-        if parsed.get('tariff') and parsed['tariff'] != '_':
-            try:
-                tariff_external_id = int(parsed['tariff'])
-                from database.requests import get_tariff_by_external_id
-                tariff = get_tariff_by_external_id(tariff_external_id)
-                if tariff:
-                    tariff_id = tariff['id']
-                    amount_cents = tariff['price_cents']
-                    amount_stars = tariff['price_stars']
-                    period_days = tariff['duration_days']
-            except Exception as e:
-                logger.error(f"Ошибка получения тарифа для внешнего ордера: {e}")
-        
-        # Если тариф не определен, мы не можем создать ордер корректно
-        if not tariff_id:
-             logger.error(f"Внешний ордер {order_id} без валидного тарифа!")
-             from bot.errors import TariffNotFoundError
-             raise TariffNotFoundError()
-             
-        # Используем цену из callback если она там есть (PRICE)
-        if parsed.get('price') and parsed['price'] > 0:
-            amount_cents = parsed['price']
-            
-        from database.requests import create_paid_order_external
-        
-        success = create_paid_order_external(
-            order_id=order_id,
-            user_id=user_id,
-            tariff_id=tariff_id,
-            payment_type='crypto',
-            amount_cents=amount_cents,
-            amount_stars=amount_stars,
-            period_days=period_days
-        )
-        
-        if not success:
-             return False, "❌ Ошибка сохранения внешнего заказа.", None
+        # Внешний ордер без тарифа — ошибка
+        logger.error(f"Внешний ордер {order_id} без привязки к тарифу!")
+        from bot.errors import TariffNotFoundError
+        raise TariffNotFoundError()
     
     # Delegate to unified logic
     return await process_payment_order(order_id)
@@ -351,7 +292,6 @@ async def process_crypto_payment(start_param: str, user_id: Optional[int] = None
 def build_crypto_payment_url(
     item_id: str,
     invoice_id: str,
-    tariff_external_id: Optional[int] = None,
     price_cents: Optional[int] = None
 ) -> str:
     """
@@ -362,7 +302,6 @@ def build_crypto_payment_url(
     Args:
         item_id: ID товара в Ya.Seller (из настроек)
         invoice_id: Наш уникальный invoice (макс 8 символов)
-        tariff_external_id: Номер тарифа (1-9) для фиксации цены
         price_cents: Цена в центах (если нужно переопределить)
         
     Returns:

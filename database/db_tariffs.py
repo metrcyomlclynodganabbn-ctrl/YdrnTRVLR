@@ -11,7 +11,6 @@ logger = logging.getLogger(__name__)
 __all__ = [
     'get_all_tariffs',
     'get_tariff_by_id',
-    'get_tariff_by_external_id',
     'add_tariff',
     'update_tariff',
     'update_tariff_field',
@@ -34,14 +33,14 @@ def get_all_tariffs(include_hidden: bool = False) -> List[Dict[str, Any]]:
         if include_hidden:
             cursor = conn.execute("""
                 SELECT id, name, duration_days, price_cents, price_stars, price_rub, 
-                       external_id, display_order, is_active, traffic_limit_gb, group_id
+                       display_order, is_active, traffic_limit_gb, group_id
                 FROM tariffs
                 ORDER BY display_order, id
             """)
         else:
             cursor = conn.execute("""
                 SELECT id, name, duration_days, price_cents, price_stars, price_rub, 
-                       external_id, display_order, is_active, traffic_limit_gb, group_id
+                       display_order, is_active, traffic_limit_gb, group_id
                 FROM tariffs
                 WHERE is_active = 1
                 ORDER BY display_order, id
@@ -61,30 +60,10 @@ def get_tariff_by_id(tariff_id: int) -> Optional[Dict[str, Any]]:
     with get_db() as conn:
         cursor = conn.execute("""
             SELECT id, name, duration_days, price_cents, price_stars, price_rub, 
-                   external_id, display_order, is_active, traffic_limit_gb, group_id
+                   display_order, is_active, traffic_limit_gb, group_id
             FROM tariffs
             WHERE id = ?
         """, (tariff_id,))
-        row = cursor.fetchone()
-        return dict(row) if row else None
-
-def get_tariff_by_external_id(external_id: int) -> Optional[Dict[str, Any]]:
-    """
-    Получает тариф по external_id (ID в Ya.Seller).
-    
-    Args:
-        external_id: Номер тарифа в Ya.Seller (1-9)
-        
-    Returns:
-        Словарь с данными тарифа или None
-    """
-    with get_db() as conn:
-        cursor = conn.execute("""
-            SELECT id, name, duration_days, price_cents, price_stars, price_rub, 
-                   external_id, display_order, is_active, traffic_limit_gb, group_id
-            FROM tariffs
-            WHERE external_id = ? AND is_active = 1
-        """, (external_id,))
         row = cursor.fetchone()
         return dict(row) if row else None
 
@@ -94,7 +73,6 @@ def add_tariff(
     price_cents: int,
     price_stars: int,
     price_rub: int = 0,
-    external_id: Optional[int] = None,
     display_order: int = 0,
     traffic_limit_gb: int = 0,
     group_id: int = 1
@@ -108,7 +86,6 @@ def add_tariff(
         price_cents: Цена в центах (USDT * 100)
         price_stars: Цена в Telegram Stars
         price_rub: Цена в рублях
-        external_id: Номер тарифа в Ya.Seller (1-9), опционально
         display_order: Порядок отображения
         traffic_limit_gb: Лимит трафика в ГБ (0 = безлимит)
         group_id: ID группы тарифов (по умолчанию 1 — «Основная»)
@@ -119,9 +96,9 @@ def add_tariff(
     with get_db() as conn:
         cursor = conn.execute("""
             INSERT INTO tariffs (name, duration_days, price_cents, price_stars, price_rub, 
-                                external_id, display_order, is_active, traffic_limit_gb, group_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-        """, (name, duration_days, price_cents, price_stars, price_rub, external_id, display_order, traffic_limit_gb, group_id))
+                                display_order, is_active, traffic_limit_gb, group_id)
+            VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+        """, (name, duration_days, price_cents, price_stars, price_rub, display_order, traffic_limit_gb, group_id))
         tariff_id = cursor.lastrowid
         logger.info(f"Добавлен тариф: {name} (ID: {tariff_id}, трафик: {traffic_limit_gb} ГБ, группа: {group_id})")
         return tariff_id
@@ -138,7 +115,7 @@ def update_tariff(tariff_id: int, **fields) -> bool:
         True если обновление успешно
     """
     allowed_fields = {'name', 'duration_days', 'price_cents', 'price_stars', 'price_rub',
-                      'external_id', 'display_order', 'is_active', 'group_id', 'traffic_limit_gb'}
+                      'display_order', 'is_active', 'group_id', 'traffic_limit_gb'}
     fields = {k: v for k, v in fields.items() if k in allowed_fields}
     
     if not fields:
@@ -222,7 +199,7 @@ def get_admin_tariff() -> Optional[Dict[str, Any]]:
     with get_db() as conn:
         cursor = conn.execute("""
             SELECT id, name, duration_days, price_cents, price_stars, price_rub, 
-                   external_id, display_order, is_active
+                   display_order, is_active
             FROM tariffs
             WHERE name = 'Admin Tariff'
             LIMIT 1
@@ -246,7 +223,6 @@ def get_admin_tariff() -> Optional[Dict[str, Any]]:
             'price_cents': 0,
             'price_stars': 0,
             'price_rub': 0,
-            'external_id': None,
             'display_order': 999,
             'is_active': 0
         }

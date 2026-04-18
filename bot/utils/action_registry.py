@@ -45,31 +45,14 @@ ACTION_REGISTRY: Dict[str, str] = {
 
 def _resolve_pay_crypto(ctx: dict) -> Optional[dict]:
     """Кнопка оплаты криптой (USDT). Определяет видимость и формирует action."""
-    from database.requests import is_crypto_configured, get_crypto_integration_mode, get_setting
-    from bot.services.billing import build_crypto_payment_url, extract_item_id_from_url
+    from database.requests import is_crypto_configured
 
     if not is_crypto_configured():
         return None
 
-    mode = get_crypto_integration_mode()
     order_id = ctx.get('order_id')
-
-    if mode == 'simple':
-        cb = f"pay_crypto:{order_id}" if order_id else "pay_crypto"
-        return {"callback_data": cb}
-    else:
-        # standard — формируем URL
-        crypto_item_url = get_setting('crypto_item_url')
-        item_id = extract_item_id_from_url(crypto_item_url)
-        if item_id and order_id:
-            url = build_crypto_payment_url(
-                item_id=item_id,
-                invoice_id=order_id,
-                tariff_external_id=None,
-                price_cents=None
-            )
-            return {"url": url}
-        return None
+    cb = f"pay_crypto:{order_id}" if order_id else "pay_crypto"
+    return {"callback_data": cb}
 
 
 def _resolve_pay_stars(ctx: dict) -> Optional[dict]:

@@ -64,7 +64,6 @@ class AdminStates(StatesGroup):
     add_tariff_price_rub = State()   # Шаг 4: Цена в рублях (карты)
     add_tariff_duration = State()    # Шаг 5: Длительность
     add_tariff_traffic_limit = State() # Шаг 6: Лимит трафика (ГБ)
-    add_tariff_external_id = State() # Шаг 7: ID тарифа в Ya.Seller (1-9)
     add_tariff_confirm = State()     # Подтверждение
 
     # ========== Редактирование тарифа ==========
@@ -210,20 +209,6 @@ TARIFF_PARAMS = [
         "format": lambda x: f"{x} ГБ" if x > 0 else "Безлимит"
     },
     {
-        "key": "external_id",
-        "label": "ID тарифа (Ya.Seller)",
-        "hint": "номер тарифа 1-9 в карточке товара",
-        "validate": lambda x: x.isdigit() and 1 <= int(x) <= 9,
-        "error": "ID тарифа от 1 до 9",
-        "convert": int,
-        "crypto_only": True,
-        "help": (
-            "💡 Это номер тарифа в карточке товара Ya.Seller.\n"
-            "По нему бот понимает, за какой именно тариф поступила оплата.\n"
-            "Убедитесь, что ID совпадает с тарифом в карточке товара!"
-        )
-    },
-    {
         "key": "display_order",
         "label": "Порядок отображения",
         "hint": "меньше = выше в списке (0-99)",
@@ -234,37 +219,26 @@ TARIFF_PARAMS = [
 ]
 
 
-def get_tariff_param_by_index(index: int, include_crypto: bool = True, crypto_mode: str = 'standard') -> dict:
+def get_tariff_param_by_index(index: int) -> dict:
     """
     Получает параметр тарифа по индексу.
     
     Args:
         index: Индекс параметра
-        include_crypto: Включать параметры для крипто-платежей
-        crypto_mode: Режим интеграции с криптой
     """
-    params = get_tariff_params_list(include_crypto, crypto_mode)
-    if 0 <= index < len(params):
-        return params[index]
-    return params[0] if params else TARIFF_PARAMS[0]
+    if 0 <= index < len(TARIFF_PARAMS):
+        return TARIFF_PARAMS[index]
+    return TARIFF_PARAMS[0]
 
 
-def get_tariff_params_list(include_crypto: bool = True, crypto_mode: str = 'standard') -> list:
-    """
-    Возвращает список параметров тарифа.
-    
-    Args:
-        include_crypto: Включать параметры для крипто-платежей
-        crypto_mode: Режим интеграции с криптой
-    """
-    if include_crypto and crypto_mode == 'standard':
-        return TARIFF_PARAMS
-    return [p for p in TARIFF_PARAMS if not p.get('crypto_only')]
+def get_tariff_params_list() -> list:
+    """Возвращает список параметров тарифа."""
+    return TARIFF_PARAMS
 
 
-def get_total_tariff_params(include_crypto: bool = True, crypto_mode: str = 'standard') -> int:
+def get_total_tariff_params() -> int:
     """Возвращает общее количество параметров тарифа."""
-    return len(get_tariff_params_list(include_crypto, crypto_mode))
+    return len(TARIFF_PARAMS)
 
 
 # ============================================================================

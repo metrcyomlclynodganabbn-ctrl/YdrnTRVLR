@@ -65,11 +65,7 @@ def cards_management_kb(is_enabled: bool) -> InlineKeyboardMarkup:
     builder.row(InlineKeyboardButton(text='🔗 Изменить Provider Token', callback_data='admin_cards_mgmt_edit_token'))
     builder.row(back_button('admin_payments'), home_button())
     return builder.as_markup()
-    'Клавиатура подтверждения настройки крипто.'
-    builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text='✅ Сохранить и включить', callback_data='admin_crypto_setup_save'))
-    builder.row(InlineKeyboardButton(text='⬅️ Назад', callback_data='admin_crypto_setup_back'), InlineKeyboardButton(text='❌ Отмена', callback_data='admin_payments'))
-    return builder.as_markup()
+
 
 def edit_crypto_kb(current_param: int, total_params: int) -> InlineKeyboardMarkup:
     """
@@ -93,17 +89,14 @@ def edit_crypto_kb(current_param: int, total_params: int) -> InlineKeyboardMarku
     builder.row(InlineKeyboardButton(text='✅ Готово', callback_data='admin_crypto_edit_done'))
     return builder.as_markup()
 
-def crypto_management_kb(is_enabled: bool, integration_mode: str) -> InlineKeyboardMarkup:
+def crypto_management_kb(is_enabled: bool) -> InlineKeyboardMarkup:
     """
     Меню управления крипто-платежами.
     
     Args:
         is_enabled: Включены ли крипто-платежи сейчас
-        integration_mode: Текущий режим интеграции ('simple' или 'standard')
     """
     builder = InlineKeyboardBuilder()
-    mode_text = '🔄 Режим: Простой (Счет)' if integration_mode == 'simple' else '🔄 Режим: Стандартный (Товар)'
-    builder.row(InlineKeyboardButton(text=mode_text, callback_data='admin_crypto_mgmt_toggle_mode'))
     status_text = '🟢 Выключить' if is_enabled else '⚪ Включить'
     builder.row(InlineKeyboardButton(text=status_text, callback_data='admin_crypto_mgmt_toggle'))
     builder.row(InlineKeyboardButton(text='🔗 Изменить ссылку на товар', callback_data='admin_crypto_mgmt_edit_url'))

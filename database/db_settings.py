@@ -15,8 +15,6 @@ __all__ = [
     'is_crypto_enabled',
     'is_stars_enabled',
     'is_crypto_configured',
-    'get_crypto_integration_mode',
-    'set_crypto_integration_mode',
     'is_cards_enabled',
     'is_cards_configured',
     'is_yookassa_qr_enabled',
@@ -96,22 +94,7 @@ def is_crypto_configured() -> bool:
     crypto_item_url = get_setting('crypto_item_url')
     return bool(crypto_item_url and crypto_item_url.strip())
 
-def get_crypto_integration_mode() -> str:
-    """
-    Возвращает текущий режим интеграции с Ya.Seller.
-    Возможные значения: 'simple' или 'standard'.
-    """
-    # Если настройка не задана (миграция почему-то не прошла), то по умолчанию "standard",
-    # чтобы не сломать текущим пользователям
-    return get_setting('crypto_integration_mode', 'standard')
 
-def set_crypto_integration_mode(mode: str) -> None:
-    """
-    Устанавливает режим интеграции с Ya.Seller.
-    """
-    if mode not in ('simple', 'standard'):
-        raise ValueError("Invalid crypto integration mode")
-    set_setting('crypto_integration_mode', mode)
 
 def is_cards_enabled() -> bool:
     """Проверяет, включена ли оплата картами (ЮКасса)."""

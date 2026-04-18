@@ -20,8 +20,6 @@ from database.requests import (
     is_stars_enabled,
     is_cards_enabled,
     is_yookassa_qr_enabled,
-    get_crypto_integration_mode,
-    set_crypto_integration_mode,
     is_demo_payment_enabled
 )
 from bot.states.admin_states import (
@@ -241,24 +239,14 @@ async def start_crypto_setup(callback: CallbackQuery, state: FSMContext):
     bot_username = callback.bot.my_username if hasattr(callback.bot, 'my_username') else "YOUR_BOT"
     callback_url = f"https://t.me/{bot_username}"
     
-    mode = get_crypto_integration_mode()
-    
     instructions = (
-        "<b>Режим «Простой» (рекомендуется):</b>\n"
         "1️⃣ В @Ya_SellerBot выберите «Управление» → «Товары» → «Добавить»\n"
         "2️⃣ Выберите тип позиции: <b>Счет</b>\n\n"
         "🎬 <b>Актуальная инструкция как добавлять:</b>\n"
         "<a href=\"https://youtu.be/cK0wX2LKxcs\">Смотреть видео</a>\n\n"
         "⚠️ <b>ВАЖНО:</b>\n"
         "• Тип позиции — именно <b>Счет</b>, а НЕ <b>Товар</b>!\n"
-        "• Тарифы добавлять к позиции <b>НЕ нужно</b> — в режиме «Счет» их нельзя туда добавить.\n"
-        "• Бот сам сформирует сумму оплаты на основе выбранного тарифа.\n\n"
-    ) if mode == 'simple' else (
-        "<b>Режим «Стандартный»:</b>\n"
-        "1️⃣ Создайте обычный <b>Товар</b> в @Ya_SellerBot\n"
-        "2️⃣ Добавьте в него тарифы (под номерами 1-9)\n"
-        "3️⃣ Обязательно добавьте ID тарифов (1-9) из бота Ya.Seller в каждый тариф нашего VPN-бота.\n\n"
-        "🎬 Процесс добавления товара показан в <a href=\"https://www.youtube.com/watch?v=MYRTzvIkbi0\">видео-инструкции</a>.\n\n"
+        "• Тарифы добавлять к позиции <b>НЕ нужно</b> — бот сам сформирует сумму оплаты.\n\n"
     )
 
     text = (
@@ -452,8 +440,7 @@ async def crypto_setup_save(callback: CallbackQuery, state: FSMContext):
     
     await safe_edit_or_send(callback.message, 
         "✅ <b>Крипто-платежи настроены и включены!</b>\n\n"
-        "Теперь пользователи смогут оплачивать криптовалютой.\n"
-        "Не забудьте добавить тарифы с указанием ID тарифа (1-9)!"
+        "Теперь пользователи смогут оплачивать криптовалютой."
     )
     
     # Показываем меню оплат
@@ -470,18 +457,14 @@ async def show_crypto_management_menu(callback: CallbackQuery, state: FSMContext
     
     is_enabled = is_crypto_enabled()
     item_url = get_setting('crypto_item_url', '')
-    mode = get_crypto_integration_mode()
     
     status_emoji = "🟢" if is_enabled else "⚪"
     status_text = "включены" if is_enabled else "выключены"
     
-    mode_title = "Простой (Счет)" if mode == 'simple' else "Стандартный (Товар)"
-    
-    mode_description = (
-        "ℹ️ <b>В Простом (Счет) режиме</b> бот генерирует ссылку на оплату с указанием точной суммы в долларах (из настроек тарифа).\n\n"
-        "⚠️ <b>ВАЖНО:</b> В Ya.Seller позиция обязательно должна иметь тип <b>«Счет»</b>, а НЕ <b>«Товар»</b>! Тарифы к позиции добавлять не нужно — бот сам указывает сумму. Настраивать ID тарифов (external_id) не требуется.\n\n"
-    ) if mode == 'simple' else (
-        "ℹ️ <b>В Стандартном режиме</b> бот отправляет покупателя на одну ссылку-товар, где он выбирает тариф. Вам нужно обязательно заполнить поле «ID тарифа из Ya.Seller» для каждого тарифа.\n\n"
+    info_text = (
+        "ℹ️ Бот генерирует ссылку на оплату с указанием точной суммы в долларах (из настроек тарифа).\n\n"
+        "⚠️ <b>ВАЖНО:</b> В Ya.Seller позиция обязательно должна иметь тип <b>«Счет»</b>. "
+        "Тарифы к позиции добавлять не нужно — бот сам указывает сумму.\n\n"
     )
     
     if item_url:
@@ -489,42 +472,26 @@ async def show_crypto_management_menu(callback: CallbackQuery, state: FSMContext
         text = (
             "💰 <b>Управление крипто-платежами</b>\n\n"
             f"{status_emoji} Статус: <b>{status_text}</b>\n"
-            f"📦 Ссылка/Товар: <a href=\"{item_url}\">{safe_url}</a>\n"
-            f"⚙️ Текущий режим: <b>{mode_title}</b>\n\n"
-            f"{mode_description}"
+            f"📦 Ссылка: <a href=\"{item_url}\">{safe_url}</a>\n\n"
+            f"{info_text}"
             "Выберите действие:"
         )
     else:
         text = (
             "💰 <b>Управление крипто-платежами</b>\n\n"
             f"{status_emoji} Статус: <b>{status_text}</b>\n"
-            "📦 Ссылка/Товар: —\n"
-            f"⚙️ Текущий режим: <b>{mode_title}</b>\n\n"
-            f"{mode_description}"
+            "📦 Ссылка: —\n\n"
+            f"{info_text}"
             "Выберите действие:"
         )
     
     await safe_edit_or_send(callback.message, 
         text,
-        reply_markup=crypto_management_kb(is_enabled, mode)
+        reply_markup=crypto_management_kb(is_enabled)
     )
     await callback.answer()
 
 
-@router.callback_query(F.data == "admin_crypto_mgmt_toggle_mode")
-async def crypto_mgmt_toggle_mode(callback: CallbackQuery, state: FSMContext):
-    """Переключает режим интеграции с криптой (simple/standard)."""
-    if not is_admin(callback.from_user.id):
-        await callback.answer("⛔ Доступ запрещён", show_alert=True)
-        return
-    
-    current_mode = get_crypto_integration_mode()
-    new_mode = 'standard' if current_mode == 'simple' else 'simple'
-    set_crypto_integration_mode(new_mode)
-    
-    await callback.answer(f"Режим переключен на: {new_mode}")
-    # Обновляем меню
-    await show_crypto_management_menu(callback, state)
 
 
 @router.callback_query(F.data == "admin_crypto_mgmt_toggle")
@@ -559,24 +526,15 @@ async def crypto_mgmt_edit_url(callback: CallbackQuery, state: FSMContext):
     
     bot_username = callback.bot.my_username if hasattr(callback.bot, 'my_username') else "YOUR_BOT"
     callback_url = f"https://t.me/{bot_username}"
-    mode = get_crypto_integration_mode()
     
     instructions = (
-        "<b>Режим «Простой» (Счет):</b>\n"
         "1️⃣ В @Ya_SellerBot выберите «Управление» → «Товары» → «Добавить»\n"
         "2️⃣ Выберите тип позиции: <b>Счет</b>\n\n"
         "🎬 <b>Актуальная инструкция как добавлять:</b>\n"
         "<a href=\"https://youtu.be/cK0wX2LKxcs\">Смотреть видео</a>\n\n"
         "⚠️ <b>ВАЖНО:</b>\n"
         "• Тип позиции — именно <b>Счет</b>, а НЕ <b>Товар</b>!\n"
-        "• Тарифы добавлять к позиции <b>НЕ нужно</b> — в режиме «Счет» их нельзя туда добавить.\n"
-        "• Бот сам сформирует сумму оплаты на основе выбранного тарифа.\n\n"
-    ) if mode == 'simple' else (
-        "<b>Режим «Стандартный» (Товар):</b>\n"
-        "1️⃣ Создайте обычный <b>Товар</b> в @Ya_SellerBot\n"
-        "2️⃣ Добавьте в него тарифы (под номерами 1-9)\n"
-        "3️⃣ Обязательно добавьте ID тарифов (1-9) из бота Ya.Seller в каждый тариф нашего VPN-бота.\n\n"
-        "🎬 Процесс добавления товара показан в <a href=\"https://www.youtube.com/watch?v=MYRTzvIkbi0\">видео-инструкции</a>.\n\n"
+        "• Тарифы добавлять к позиции <b>НЕ нужно</b> — бот сам сформирует сумму оплаты.\n\n"
     )
     
     if current_url:

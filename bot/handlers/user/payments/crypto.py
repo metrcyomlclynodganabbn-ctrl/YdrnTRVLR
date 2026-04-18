@@ -59,7 +59,7 @@ async def renew_crypto_invoice(callback: CallbackQuery):
     if not item_id:
         await callback.answer('❌ Ошибка настройки крипто-платежей', show_alert=True)
         return
-    crypto_url = build_crypto_payment_url(item_id=item_id, invoice_id=order_id, tariff_external_id=None, price_cents=tariff['price_cents'])
+    crypto_url = build_crypto_payment_url(item_id=item_id, invoice_id=order_id, price_cents=tariff['price_cents'])
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text='💰 Перейти к оплате', url=crypto_url))
     cb_data = f'renew_crypto_tariff:{key_id}:{order_id}' if order_id else f'renew_crypto_tariff:{key_id}'
@@ -111,7 +111,7 @@ async def pay_crypto_invoice(callback: CallbackQuery):
     if not item_id:
         await callback.answer('❌ Ошибка настройки крипто-платежей', show_alert=True)
         return
-    crypto_url = build_crypto_payment_url(item_id=item_id, invoice_id=order_id, tariff_external_id=None, price_cents=tariff['price_cents'])
+    crypto_url = build_crypto_payment_url(item_id=item_id, invoice_id=order_id, price_cents=tariff['price_cents'])
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text='💰 Перейти к оплате', url=crypto_url))
     builder.row(InlineKeyboardButton(text='⬅️ Назад', callback_data=f'pay_crypto:{order_id}'))

@@ -201,7 +201,7 @@ def get_tariffs_by_group(group_id: int) -> List[Dict[str, Any]]:
     with get_db() as conn:
         cursor = conn.execute("""
             SELECT id, name, duration_days, price_cents, price_stars, price_rub, 
-                   external_id, display_order, is_active, traffic_limit_gb, group_id
+                   display_order, is_active, traffic_limit_gb, group_id
             FROM tariffs
             WHERE group_id = ? AND is_active = 1
             ORDER BY display_order, id

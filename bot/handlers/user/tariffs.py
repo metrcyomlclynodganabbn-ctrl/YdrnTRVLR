@@ -15,7 +15,7 @@ async def buy_key_handler(callback: CallbackQuery):
         is_crypto_configured, is_stars_enabled, is_cards_enabled,
         is_yookassa_qr_configured, is_demo_payment_enabled,
         get_user_internal_id, create_pending_order,
-        get_crypto_integration_mode, get_setting,
+        get_setting,
     )
     from bot.utils.page_renderer import render_page
     from bot.keyboards.admin import home_only_kb

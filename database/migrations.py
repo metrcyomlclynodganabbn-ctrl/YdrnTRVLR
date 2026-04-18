@@ -34,7 +34,7 @@ def _add_column(conn: sqlite3.Connection, table: str, column_def: str) -> None:
 INITIAL_VERSION = 21
 
 # Текущая версия схемы БД (инкрементируется при добавлении новых миграций)
-LATEST_VERSION = 21
+LATEST_VERSION = 22
 
 
 def get_current_version() -> int:
@@ -132,7 +132,7 @@ def migration_initial(conn: sqlite3.Connection) -> None:
         ('crypto_enabled', '0'),
         ('crypto_item_url', ''),
         ('crypto_secret_key', ''),
-        ('crypto_integration_mode', 'simple'),
+
         ('stars_enabled', '0'),
         ('demo_payment_enabled', '0'),
         ('traffic_notification_text',
@@ -173,7 +173,6 @@ def migration_initial(conn: sqlite3.Connection) -> None:
             duration_days INTEGER NOT NULL,
             price_cents INTEGER NOT NULL,
             price_stars INTEGER NOT NULL,
-            external_id INTEGER,
             display_order INTEGER DEFAULT 0,
             is_active INTEGER DEFAULT 1,
             price_rub INTEGER DEFAULT 0,
@@ -184,8 +183,8 @@ def migration_initial(conn: sqlite3.Connection) -> None:
 
     # Скрытый тариф для админских ключей
     conn.execute("""
-        INSERT INTO tariffs (name, duration_days, price_cents, price_stars, external_id, display_order, is_active)
-        SELECT 'Admin Tariff', 365, 0, 0, 0, 999, 0
+        INSERT INTO tariffs (name, duration_days, price_cents, price_stars, display_order, is_active)
+        SELECT 'Admin Tariff', 365, 0, 0, 999, 0
         WHERE NOT EXISTS (SELECT 1 FROM tariffs WHERE name = 'Admin Tariff')
     """)
 
@@ -373,8 +372,8 @@ def migration_initial(conn: sqlite3.Connection) -> None:
                 "---"
             ),
             'buttons': json.dumps([
-                {"id": "btn_news",      "label": "📢 Новости",    "color": "secondary", "row": 0, "col": 0, "is_hidden": False, "action_type": "system", "action_value": None},
-                {"id": "btn_support",   "label": "💬 Поддержка",  "color": "secondary", "row": 0, "col": 1, "is_hidden": False, "action_type": "system", "action_value": None},
+                {"id": "btn_news",      "label": "📢 Новости",    "color": "secondary", "row": 0, "col": 0, "is_hidden": False, "action_type": "url", "action_value": "https://t.me/plushkin_blog"},
+                {"id": "btn_support",   "label": "💬 Поддержка",  "color": "secondary", "row": 0, "col": 1, "is_hidden": False, "action_type": "url", "action_value": "https://t.me/plushkin_chat"},
                 {"id": "btn_back_main", "label": "🈴 На главную", "color": "secondary", "row": 1, "col": 0, "is_hidden": False, "action_type": "internal", "action_value": "cmd_back_main"},
             ], ensure_ascii=False),
         },
@@ -468,15 +467,61 @@ def migration_initial(conn: sqlite3.Connection) -> None:
 
 # Пример добавления новой миграции:
 #
-# def migration_22(conn: sqlite3.Connection) -> None:
-#     """Миграция v22: Описание изменений."""
-#     logger.info("Применение миграции v22...")
-#     # ... изменения ...
-#     logger.info("Миграция v22 применена")
+def migration_22(conn):
+    """
+    Миграция v22: удаление стандартного режима крипто-оплаты.
+    
+    - Удаляет настройку crypto_integration_mode из settings
+    - Удаляет колонку external_id из таблицы tariffs
+    """
+    # 1. Удаляем настройку crypto_integration_mode
+    conn.execute("DELETE FROM settings WHERE key = 'crypto_integration_mode'")
+    
+    # 2. Удаляем колонку external_id из tariffs
+    # ALTER TABLE DROP COLUMN поддерживается с SQLite 3.35.0 (март 2021)
+    # Фоллбэк через пересоздание таблицы для старых версий
+    try:
+        conn.execute("ALTER TABLE tariffs DROP COLUMN external_id")
+        logger.info("Колонка external_id удалена через DROP COLUMN")
+    except Exception as e:
+        if "no such column" in str(e).lower():
+            # Колонки уже нет — всё ок
+            logger.info("Колонка external_id уже отсутствует — пропускаем")
+        else:
+            # Старый SQLite — пересоздаём таблицу без external_id
+            logger.info(f"DROP COLUMN не поддерживается ({e}), пересоздаём таблицу tariffs")
+            conn.execute("""
+                CREATE TABLE tariffs_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    duration_days INTEGER NOT NULL,
+                    price_cents INTEGER NOT NULL,
+                    price_stars INTEGER NOT NULL,
+                    display_order INTEGER DEFAULT 0,
+                    is_active INTEGER DEFAULT 1,
+                    price_rub INTEGER DEFAULT 0,
+                    traffic_limit_gb INTEGER DEFAULT 0,
+                    group_id INTEGER DEFAULT 1
+                )
+            """)
+            conn.execute("""
+                INSERT INTO tariffs_new (id, name, duration_days, price_cents, price_stars,
+                                         display_order, is_active, price_rub, traffic_limit_gb, group_id)
+                SELECT id, name, duration_days, price_cents, price_stars,
+                       display_order, is_active, price_rub, traffic_limit_gb, group_id
+                FROM tariffs
+            """)
+            conn.execute("DROP TABLE tariffs")
+            conn.execute("ALTER TABLE tariffs_new RENAME TO tariffs")
+            logger.info("Таблица tariffs пересоздана без external_id")
+    
+    logger.info("Миграция v22 применена: стандартный режим крипто-оплаты удалён")
+
 
 MIGRATIONS = {
-    # 22: migration_22,
+    22: migration_22,
 }
+
 
 
 def run_migrations() -> None:

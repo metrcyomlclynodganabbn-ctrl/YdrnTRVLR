@@ -226,8 +226,7 @@ async def key_show_handler(callback: CallbackQuery):
 @router.callback_query(F.data.startswith('key_renew:'))
 async def key_renew_select_payment(callback: CallbackQuery):
     """Выбор способа оплаты для продления (сразу, без тарифа)."""
-    from database.requests import get_all_tariffs, get_key_details_for_user, get_user_internal_id, is_crypto_configured, is_stars_enabled, is_cards_enabled, get_setting, create_pending_order, get_crypto_integration_mode, is_referral_enabled, get_referral_reward_type, get_user_balance, is_demo_payment_enabled
-    from bot.services.billing import build_crypto_payment_url, extract_item_id_from_url
+    from database.requests import get_key_details_for_user, get_user_internal_id, is_crypto_configured, is_stars_enabled, is_cards_enabled, is_referral_enabled, get_referral_reward_type, get_user_balance, is_demo_payment_enabled
     from bot.keyboards.user import renew_payment_method_kb, back_and_home_kb
     key_id = int(callback.data.split(':')[1])
     telegram_id = callback.from_user.id
@@ -245,26 +244,14 @@ async def key_renew_select_payment(callback: CallbackQuery):
         await safe_edit_or_send(callback.message, '💳 <b>Продление ключа</b>\n\n😔 Способы оплаты временно недоступны.\nПопробуйте позже.', reply_markup=back_and_home_kb(back_callback=f'key:{key_id}'))
         await callback.answer()
         return
-    crypto_url = None
-    crypto_mode = get_crypto_integration_mode()
     user_id = get_user_internal_id(telegram_id)
-    if crypto_configured and user_id:
-        tariffs = get_all_tariffs(include_hidden=False)
-        if tariffs:
-            placeholder_tariff = tariffs[0]
-            (_, order_id) = create_pending_order(user_id=user_id, tariff_id=placeholder_tariff['id'], payment_type='crypto', vpn_key_id=key_id)
-            if crypto_mode == 'standard':
-                item_url = get_setting('crypto_item_url')
-                item_id = extract_item_id_from_url(item_url)
-                if item_id:
-                    crypto_url = build_crypto_payment_url(item_id=item_id, invoice_id=order_id, tariff_external_id=None, price_cents=None)
     show_balance_button = False
     if is_referral_enabled() and get_referral_reward_type() == 'balance':
         if user_id:
             balance_cents = get_user_balance(user_id)
             if balance_cents > 0:
                 show_balance_button = True
-    await safe_edit_or_send(callback.message, f"💳 <b>Продление ключа</b>\n\n🔑 Ключ: <b>{escape_html(key['display_name'])}</b>\n\nВыберите способ оплаты:", reply_markup=renew_payment_method_kb(key_id=key_id, crypto_url=crypto_url, crypto_mode=crypto_mode, crypto_configured=crypto_configured, stars_enabled=stars_enabled, cards_enabled=cards_enabled, yookassa_qr_enabled=yookassa_qr, show_balance_button=show_balance_button, demo_enabled=demo_enabled))
+    await safe_edit_or_send(callback.message, f"💳 <b>Продление ключа</b>\n\n🔑 Ключ: <b>{escape_html(key['display_name'])}</b>\n\nВыберите способ оплаты:", reply_markup=renew_payment_method_kb(key_id=key_id, crypto_configured=crypto_configured, stars_enabled=stars_enabled, cards_enabled=cards_enabled, yookassa_qr_enabled=yookassa_qr, show_balance_button=show_balance_button, demo_enabled=demo_enabled))
     await callback.answer()
 
 @router.callback_query(F.data.startswith('key_replace:'))

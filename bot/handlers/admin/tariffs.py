@@ -20,8 +20,6 @@ from database.requests import (
     add_tariff,
     update_tariff_field,
     toggle_tariff_active,
-    is_crypto_enabled,
-    get_crypto_integration_mode,
     get_groups_count,
     get_all_groups,
     get_group_by_id,
@@ -107,8 +105,7 @@ async def show_tariffs_list(callback: CallbackQuery, state: FSMContext):
                 f"{tariff['duration_days']} дн. / {traffic_text}"
             )
             
-            if tariff.get('external_id'):
-                lines[-1] += f" (ID: {tariff['external_id']})"
+
         
         text = "\n".join(lines)
     
@@ -146,8 +143,7 @@ async def render_tariff_view(message: Message, tariff_id: int, state: FSMContext
     traffic_text = f"{traffic_gb} ГБ" if traffic_gb > 0 else "Безлимит"
     lines.append(f"📦 Лимит трафика: <code>{traffic_text}</code>")
     
-    if tariff.get('external_id'):
-        lines.append(f"🔗 ID тарифа (Ya.Seller): <code>{tariff['external_id']}</code>")
+
     
     # Группа (показываем только если > 1 группы)
     groups_count = get_groups_count()
@@ -228,13 +224,12 @@ ADD_TARIFF_STATES = [
     AdminStates.add_tariff_price_rub,
     AdminStates.add_tariff_duration,
     AdminStates.add_tariff_traffic_limit,
-    AdminStates.add_tariff_external_id,
 ]
 
 
-def get_add_step_state(step: int, include_crypto: bool, crypto_mode: str) -> AdminStates:
+def get_add_step_state(step: int) -> AdminStates:
     """Возвращает состояние для шага добавления."""
-    params = get_tariff_params_list(include_crypto, crypto_mode)
+    params = get_tariff_params_list()
     if step <= 0:
         return ADD_TARIFF_STATES[0]
     if step > len(params):
@@ -251,16 +246,15 @@ def get_add_step_state(step: int, include_crypto: bool, crypto_mode: str) -> Adm
         'price_rub': AdminStates.add_tariff_price_rub,
         'duration_days': AdminStates.add_tariff_duration,
         'traffic_limit_gb': AdminStates.add_tariff_traffic_limit,
-        'external_id': AdminStates.add_tariff_external_id,
         'display_order': AdminStates.add_tariff_confirm,  # display_order пропускаем при добавлении
     }
     
     return state_map.get(key, AdminStates.add_tariff_confirm)
 
 
-def get_add_step_text(step: int, data: dict, include_crypto: bool, crypto_mode: str) -> str:
+def get_add_step_text(step: int, data: dict) -> str:
     """Формирует текст для шага добавления тарифа."""
-    params = get_tariff_params_list(include_crypto, crypto_mode)
+    params = get_tariff_params_list()
     # Убираем display_order из добавления (он будет 0 по умолчанию)
     params = [p for p in params if p['key'] != 'display_order']
     total = len(params)
@@ -299,15 +293,13 @@ async def start_add_tariff(callback: CallbackQuery, state: FSMContext):
         await callback.answer("⛔ Доступ запрещён", show_alert=True)
         return
     
-    include_crypto = is_crypto_enabled()
-    crypto_mode = get_crypto_integration_mode()
     
     # Если > 1 группы — сначала выбираем группу
     groups_count = get_groups_count()
     if groups_count > 1:
         groups = get_all_groups()
         await state.set_state(AdminStates.tariff_select_group)
-        await state.update_data(tariff_data={}, include_crypto=include_crypto, crypto_mode=crypto_mode)
+        await state.update_data(tariff_data={})
         
         await safe_edit_or_send(callback.message, 
             "📝 <b>Добавление тарифа</b>\n\n"
@@ -319,13 +311,13 @@ async def start_add_tariff(callback: CallbackQuery, state: FSMContext):
     
     # Одна группа — сразу к вводу данных
     await state.set_state(AdminStates.add_tariff_name)
-    await state.update_data(tariff_data={}, add_step=1, include_crypto=include_crypto, crypto_mode=crypto_mode, selected_group_id=1)
+    await state.update_data(tariff_data={}, add_step=1, selected_group_id=1)
     
-    params = get_tariff_params_list(include_crypto, crypto_mode)
+    params = get_tariff_params_list()
     params = [p for p in params if p['key'] != 'display_order']
     total = len(params)
     
-    text = get_add_step_text(1, {}, include_crypto, crypto_mode)
+    text = get_add_step_text(1, {})
     
     await safe_edit_or_send(callback.message, 
         text,
@@ -340,20 +332,18 @@ async def tariff_group_selected(callback: CallbackQuery, state: FSMContext):
     group_id = int(callback.data.split(":")[1])
     
     data = await state.get_data()
-    include_crypto = data.get('include_crypto', False)
-    crypto_mode = data.get('crypto_mode', 'standard')
     
     await state.set_state(AdminStates.add_tariff_name)
     await state.update_data(add_step=1, selected_group_id=group_id)
     
-    params = get_tariff_params_list(include_crypto, crypto_mode)
+    params = get_tariff_params_list()
     params = [p for p in params if p['key'] != 'display_order']
     total = len(params)
     
     group = get_group_by_id(group_id)
     group_name = group['name'] if group else 'Основная'
     
-    text = f"📂 Группа: <b>{group_name}</b>\n\n" + get_add_step_text(1, {}, include_crypto, crypto_mode)
+    text = f"📂 Группа: <b>{group_name}</b>\n\n" + get_add_step_text(1, {})
     
     await safe_edit_or_send(callback.message, 
         text,
@@ -371,8 +361,6 @@ async def add_tariff_back(callback: CallbackQuery, state: FSMContext):
     
     data = await state.get_data()
     current_step = data.get('add_step', 1)
-    include_crypto = data.get('include_crypto', False)
-    crypto_mode = data.get('crypto_mode', 'standard')
     
     if current_step <= 1:
         # Возврат к списку тарифов
@@ -381,15 +369,15 @@ async def add_tariff_back(callback: CallbackQuery, state: FSMContext):
     
     # На шаг назад
     new_step = current_step - 1
-    new_state = get_add_step_state(new_step, include_crypto, crypto_mode)
+    new_state = get_add_step_state(new_step)
     await state.set_state(new_state)
     await state.update_data(add_step=new_step)
     
-    params = get_tariff_params_list(include_crypto, crypto_mode)
+    params = get_tariff_params_list()
     params = [p for p in params if p['key'] != 'display_order']
     total = len(params)
     
-    text = get_add_step_text(new_step, data.get('tariff_data', {}), include_crypto, crypto_mode)
+    text = get_add_step_text(new_step, data.get('tariff_data', {}))
     
     await safe_edit_or_send(callback.message, 
         text,
@@ -403,10 +391,8 @@ async def process_add_tariff_step(message: Message, state: FSMContext):
     data = await state.get_data()
     current_step = data.get('add_step', 1)
     tariff_data = data.get('tariff_data', {})
-    include_crypto = data.get('include_crypto', False)
-    crypto_mode = data.get('crypto_mode', 'standard')
     
-    params = get_tariff_params_list(include_crypto, crypto_mode)
+    params = get_tariff_params_list()
     params = [p for p in params if p['key'] != 'display_order']
     total = len(params)
     
@@ -442,11 +428,11 @@ async def process_add_tariff_step(message: Message, state: FSMContext):
     # Переход к следующему шагу или подтверждению
     if current_step < total:
         new_step = current_step + 1
-        new_state = get_add_step_state(new_step, include_crypto, crypto_mode)
+        new_state = get_add_step_state(new_step)
         await state.set_state(new_state)
         await state.update_data(add_step=new_step)
         
-        text = get_add_step_text(new_step, tariff_data, include_crypto, crypto_mode)
+        text = get_add_step_text(new_step, tariff_data)
         
         await safe_edit_or_send(message,
             text,
@@ -473,9 +459,6 @@ async def process_add_tariff_step(message: Message, state: FSMContext):
         traffic_gb = tariff_data.get('traffic_limit_gb', 0)
         traffic_text = f"{traffic_gb} ГБ" if traffic_gb > 0 else "Безлимит"
         lines.append(f"📦 Лимит трафика: <code>{traffic_text}</code>")
-        
-        if tariff_data.get('external_id'):
-            lines.append(f"🔗 ID тарифа: <code>{tariff_data['external_id']}</code>")
         
         lines.append("\nСохранить тариф?")
         
@@ -512,9 +495,7 @@ async def add_tariff_duration_handler(message: Message, state: FSMContext):
     await process_add_tariff_step(message, state)
 
 
-@router.message(AdminStates.add_tariff_external_id)
-async def add_tariff_external_id_handler(message: Message, state: FSMContext):
-    await process_add_tariff_step(message, state)
+
 
 
 @router.message(AdminStates.add_tariff_traffic_limit)
@@ -540,7 +521,6 @@ async def add_tariff_save(callback: CallbackQuery, state: FSMContext):
             price_cents=tariff_data['price_cents'],
             price_stars=tariff_data['price_stars'],
             price_rub=tariff_data.get('price_rub', 0),
-            external_id=tariff_data.get('external_id'),
             display_order=0,
             traffic_limit_gb=tariff_data.get('traffic_limit_gb', 0),
             group_id=selected_group_id
@@ -570,9 +550,9 @@ async def add_tariff_save(callback: CallbackQuery, state: FSMContext):
 # РЕДАКТИРОВАНИЕ ТАРИФА
 # ============================================================================
 
-def get_edit_tariff_text(tariff: dict, current_param: int, include_crypto: bool, crypto_mode: str) -> str:
+def get_edit_tariff_text(tariff: dict, current_param: int) -> str:
     """Формирует текст для экрана редактирования тарифа."""
-    params = get_tariff_params_list(include_crypto, crypto_mode)
+    params = get_tariff_params_list()
     total = len(params)
     
     param = params[current_param]
@@ -607,14 +587,11 @@ async def start_edit_tariff(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Тариф не найден", show_alert=True)
         return
     
-    include_crypto = is_crypto_enabled()
-    crypto_mode = get_crypto_integration_mode()
-    
     await state.set_state(AdminStates.edit_tariff)
-    await state.update_data(tariff_id=tariff_id, edit_param=0, include_crypto=include_crypto, crypto_mode=crypto_mode)
+    await state.update_data(tariff_id=tariff_id, edit_param=0)
     
-    text = get_edit_tariff_text(tariff, 0, include_crypto, crypto_mode)
-    total = get_total_tariff_params(include_crypto, crypto_mode)
+    text = get_edit_tariff_text(tariff, 0)
+    total = get_total_tariff_params()
     
     await safe_edit_or_send(callback.message, 
         text,
@@ -633,8 +610,6 @@ async def edit_tariff_prev(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     tariff_id = data.get('tariff_id')
     current_param = data.get('edit_param', 0)
-    include_crypto = data.get('include_crypto', False)
-    crypto_mode = data.get('crypto_mode', 'standard')
     
     tariff = get_tariff_by_id(tariff_id)
     if not tariff:
@@ -644,8 +619,8 @@ async def edit_tariff_prev(callback: CallbackQuery, state: FSMContext):
     new_param = max(0, current_param - 1)
     await state.update_data(edit_param=new_param)
     
-    text = get_edit_tariff_text(tariff, new_param, include_crypto, crypto_mode)
-    total = get_total_tariff_params(include_crypto, crypto_mode)
+    text = get_edit_tariff_text(tariff, new_param)
+    total = get_total_tariff_params()
     
     await safe_edit_or_send(callback.message, 
         text,
@@ -664,19 +639,17 @@ async def edit_tariff_next(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     tariff_id = data.get('tariff_id')
     current_param = data.get('edit_param', 0)
-    include_crypto = data.get('include_crypto', False)
-    crypto_mode = data.get('crypto_mode', 'standard')
     
     tariff = get_tariff_by_id(tariff_id)
     if not tariff:
         await callback.answer("❌ Тариф не найден", show_alert=True)
         return
     
-    total = get_total_tariff_params(include_crypto, crypto_mode)
+    total = get_total_tariff_params()
     new_param = min(total - 1, current_param + 1)
     await state.update_data(edit_param=new_param)
     
-    text = get_edit_tariff_text(tariff, new_param, include_crypto, crypto_mode)
+    text = get_edit_tariff_text(tariff, new_param)
     
     await safe_edit_or_send(callback.message, 
         text,
@@ -691,12 +664,10 @@ async def edit_tariff_value(message: Message, state: FSMContext):
     data = await state.get_data()
     tariff_id = data.get('tariff_id')
     current_param = data.get('edit_param', 0)
-    include_crypto = data.get('include_crypto', False)
-    crypto_mode = data.get('crypto_mode', 'standard')
     
     from bot.utils.text import get_message_text_for_storage, safe_edit_or_send
     
-    param = get_tariff_param_by_index(current_param, include_crypto, crypto_mode)
+    param = get_tariff_param_by_index(current_param)
     value = get_message_text_for_storage(message, 'plain')
     
     # Валидация
@@ -725,8 +696,8 @@ async def edit_tariff_value(message: Message, state: FSMContext):
     
     # Обновляем экран с новым значением
     tariff = get_tariff_by_id(tariff_id)
-    text = get_edit_tariff_text(tariff, current_param, include_crypto, crypto_mode)
-    total = get_total_tariff_params(include_crypto, crypto_mode)
+    text = get_edit_tariff_text(tariff, current_param)
+    total = get_total_tariff_params()
     
     await safe_edit_or_send(message,
         f"✅ <b>{param['label']}</b> обновлено!\n\n" + text,

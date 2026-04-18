@@ -98,8 +98,7 @@ async def finalize_payment_ui(message: Message, state: FSMContext, text: str, or
 async def renew_invoice_cancel_handler(callback: CallbackQuery):
     """Отмена инвойса и возврат к выбору способа оплаты."""
     from bot.keyboards.user import renew_payment_method_kb
-    from database.requests import get_key_details_for_user, get_all_tariffs, is_crypto_configured, is_stars_enabled, is_cards_enabled, get_user_internal_id, create_pending_order, get_setting, is_yookassa_qr_configured, get_crypto_integration_mode, is_referral_enabled, get_referral_reward_type, get_user_balance, is_demo_payment_enabled
-    from bot.services.billing import build_crypto_payment_url, extract_item_id_from_url
+    from database.requests import get_key_details_for_user, is_crypto_configured, is_stars_enabled, is_cards_enabled, get_user_internal_id, get_setting, is_yookassa_qr_configured, is_referral_enabled, get_referral_reward_type, get_user_balance, is_demo_payment_enabled
     parts = callback.data.split(':')
     key_id = int(parts[1])
     telegram_id = callback.from_user.id
@@ -119,19 +118,7 @@ async def renew_invoice_cancel_handler(callback: CallbackQuery):
         await safe_edit_or_send(callback.message, '😔 Способы оплаты временно недоступны.', force_new=True)
         return
 
-    crypto_url = None
-    crypto_mode = get_crypto_integration_mode()
     user_id = get_user_internal_id(telegram_id)
-    
-    if crypto_configured and user_id:
-        tariffs = get_all_tariffs(include_hidden=False)
-        if tariffs:
-            (_, order_id) = create_pending_order(user_id=user_id, tariff_id=tariffs[0]['id'], payment_type='crypto', vpn_key_id=key_id)
-            if crypto_mode == 'standard':
-                item_url = get_setting('crypto_item_url')
-                item_id = extract_item_id_from_url(item_url)
-                if item_id:
-                    crypto_url = build_crypto_payment_url(item_id=item_id, invoice_id=order_id, tariff_external_id=None, price_cents=None)
                     
     show_balance_button = False
     if is_referral_enabled() and get_referral_reward_type() == 'balance':
@@ -145,8 +132,6 @@ async def renew_invoice_cancel_handler(callback: CallbackQuery):
         f"💳 <b>Продление ключа</b>\n\n🔑 Ключ: <b>{escape_html(key['display_name'])}</b>\n\nВыберите способ оплаты:",
         reply_markup=renew_payment_method_kb(
             key_id=key_id,
-            crypto_url=crypto_url,
-            crypto_mode=crypto_mode,
             crypto_configured=crypto_configured,
             stars_enabled=stars_enabled,
             cards_enabled=cards_enabled,
