@@ -19,7 +19,8 @@ from typing import Optional, Dict, Any, Tuple
 from database.requests import (
     find_order_by_order_id, complete_order, is_order_already_paid,
     get_vpn_key_by_id, extend_vpn_key, get_setting,
-    get_yookassa_credentials,
+    get_yookassa_credentials, get_wata_token, get_platega_credentials,
+    get_cardlink_credentials,
     is_referral_enabled, get_referral_reward_type, get_active_referral_levels,
     get_user_referrer, get_user_referral_coefficient, get_user_balance,
     add_to_balance, deduct_from_balance, add_days_to_first_active_key,
@@ -33,6 +34,10 @@ STAR_TO_USD = 0.013
 USDT_TO_USD = 1.0
 
 YOOKASSA_API_URL = "https://api.yookassa.ru/v3/payments"
+WATA_API_URL = "https://api.wata.pro/api/h2h"
+PLATEGA_API_URL = "https://app.platega.io"
+PLATEGA_PAYMENT_METHOD_SBP = 2
+CARDLINK_API_URL = "https://cardlink.link"
 
 # Алфавит для Base62 кодирования
 ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
@@ -530,15 +535,564 @@ async def check_yookassa_payment_status(yookassa_payment_id: str) -> str:
             return status
 
 
+# ============================================================================
+# WATA — оплата картой/СБП через REST API (https://wata.pro/api)
+# ============================================================================
+
+async def create_wata_payment(
+    amount_rub: float,
+    order_id: str,
+    description: str,
+    bot_name: str
+) -> Dict[str, Any]:
+    """
+    Создаёт платёжную ссылку в WATA через H2H API.
+
+    POST https://api.wata.pro/api/h2h/links/
+
+    Args:
+        amount_rub: Сумма в рублях
+        order_id: Наш внутренний order_id
+        description: Описание платежа
+        bot_name: Username бота (для построения successRedirectUrl)
+
+    Returns:
+        Словарь с ключами:
+            - wata_link_id: ID ссылки в системе WATA
+            - qr_image_data: PNG-байты QR-кода
+            - qr_url: Ссылка для оплаты (карты/СБП)
+            - status: Статус платежа
+
+    Raises:
+        ValueError: Если JWT-токен не настроен
+        RuntimeError: Если API вернул ошибку
+    """
+    token = get_wata_token()
+    if not token:
+        raise ValueError("WATA: JWT-токен не настроен")
+
+    return_url = f"https://t.me/{bot_name}" if bot_name else "https://t.me"
+
+    payload = {
+        "amount": round(float(amount_rub), 2),
+        "currency": "RUB",
+        "description": description[:255],
+        "orderId": order_id,
+        "successRedirectUrl": return_url,
+        "failRedirectUrl": return_url,
+    }
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
+    url = f"{WATA_API_URL}/links/"
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, json=payload, headers=headers) as response:
+            try:
+                data = await response.json()
+            except Exception:
+                text = await response.text()
+                logger.error(f"WATA API: невозможно разобрать ответ ({response.status}): {text}")
+                raise RuntimeError("WATA API вернул некорректный ответ")
+
+            if response.status not in (200, 201):
+                error_desc = data.get('error') or data.get('message') or data.get('description') or 'Неизвестная ошибка'
+                logger.error(f"WATA API ошибка {response.status}: {error_desc} | payload={payload}")
+                raise RuntimeError(f"WATA API ошибка: {error_desc}")
+
+            wata_link_id = data.get('id') or data.get('linkId') or data.get('uuid')
+            qr_url = data.get('url') or data.get('paymentUrl')
+
+            if not wata_link_id or not qr_url:
+                logger.error(f"WATA API не вернул id/url: {data}")
+                raise RuntimeError("WATA API не вернул данные платёжной ссылки")
+
+            qr = qrcode.QRCode(
+                version=1,
+                error_correction=qrcode.constants.ERROR_CORRECT_L,
+                box_size=10,
+                border=4,
+            )
+            qr.add_data(qr_url)
+            qr.make(fit=True)
+
+            img = qr.make_image(fill_color="black", back_color="white")
+            bio = io.BytesIO()
+            img.save(bio, format="PNG")
+            qr_image_data = bio.getvalue()
+
+            logger.info(
+                f"WATA ссылка создана: link_id={wata_link_id}, order_id={order_id}, "
+                f"amount={amount_rub} RUB"
+            )
+
+            return {
+                'wata_link_id': str(wata_link_id),
+                'qr_image_data': qr_image_data,
+                'qr_url': qr_url,
+                'status': str(data.get('status', 'Created')).lower(),
+            }
+
+
+async def check_wata_payment_status(order_id: str) -> str:
+    """
+    Проверяет статус платежа WATA по нашему order_id.
+
+    GET https://api.wata.pro/api/h2h/transactions/?orderId={order_id}
+
+    WATA имеет лимит — не чаще одного запроса в 30 секунд по одному order_id.
+    Контроль частоты запросов выполняется на стороне обработчика.
+
+    Args:
+        order_id: Наш внутренний order_id
+
+    Returns:
+        Нормализованный статус: 'pending' | 'succeeded' | 'canceled'
+
+    Raises:
+        ValueError: Если JWT-токен не настроен
+        RuntimeError: Если API вернул ошибку
+    """
+    token = get_wata_token()
+    if not token:
+        raise ValueError("WATA: JWT-токен не настроен")
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+    }
+
+    url = f"{WATA_API_URL}/transactions/"
+    params = {"orderId": order_id}
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, params=params, headers=headers) as response:
+            try:
+                data = await response.json()
+            except Exception:
+                text = await response.text()
+                logger.error(f"WATA статус: невозможно разобрать ответ ({response.status}): {text}")
+                raise RuntimeError("WATA API вернул некорректный ответ")
+
+            if response.status != 200:
+                error_desc = data.get('error') or data.get('message') or data.get('description') or 'Неизвестная ошибка'
+                logger.error(f"WATA статус ошибка {response.status}: {error_desc}")
+                raise RuntimeError(f"WATA API ошибка: {error_desc}")
+
+            # WATA возвращает либо список транзакций, либо объект с items
+            items = data if isinstance(data, list) else (data.get('items') or data.get('transactions') or [])
+
+            if not items:
+                return 'pending'
+
+            # Если есть хоть одна Paid — считаем оплаченным
+            statuses = [str(t.get('status', '')).lower() for t in items if isinstance(t, dict)]
+            if any(s == 'paid' for s in statuses):
+                return 'succeeded'
+            if any(s == 'declined' for s in statuses) and not any(s in ('created', 'pending') for s in statuses):
+                return 'canceled'
+
+            return 'pending'
+
+
+# ============================================================================
+# PLATEGA — оплата СБП через REST API (https://app.platega.io)
+# ============================================================================
+
+async def create_platega_payment(
+    amount_rub: float,
+    order_id: str,
+    description: str,
+    bot_name: str
+) -> Dict[str, Any]:
+    """
+    Создаёт транзакцию в Platega API.
+
+    POST https://app.platega.io/transaction/process
+
+    Args:
+        amount_rub: Сумма в рублях
+        order_id: Наш внутренний order_id
+        description: Описание платежа
+        bot_name: Username бота (для построения returnUrl)
+
+    Returns:
+        Словарь с ключами:
+            - platega_transaction_id: ID транзакции в системе Platega
+            - qr_image_data: PNG-байты QR-кода
+            - qr_url: Ссылка для оплаты (СБП)
+            - status: Статус платежа
+
+    Raises:
+        ValueError: Если учётные данные не настроены
+        RuntimeError: Если API вернул ошибку
+    """
+    merchant_id, secret = get_platega_credentials()
+    if not merchant_id or not secret:
+        raise ValueError("Platega: не настроены merchant_id или secret")
+
+    return_url = f"https://t.me/{bot_name}" if bot_name else "https://t.me"
+    fail_url = return_url
+
+    # Platega требует id в формате UUID. Наш короткий order_id сохраняем в payload.
+    transaction_uuid = str(uuid.uuid4())
+
+    payload = {
+        "paymentMethod": PLATEGA_PAYMENT_METHOD_SBP,
+        "id": transaction_uuid,
+        "paymentDetails": {
+            "amount": round(float(amount_rub), 2),
+            "currency": "RUB",
+        },
+        "description": description[:255],
+        "returnUrl": return_url,
+        "failedUrl": fail_url,
+        "payload": order_id,
+    }
+
+    headers = {
+        "X-MerchantId": merchant_id,
+        "X-Secret": secret,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
+    url = f"{PLATEGA_API_URL}/transaction/process"
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, json=payload, headers=headers) as response:
+            try:
+                data = await response.json()
+            except Exception:
+                text = await response.text()
+                logger.error(f"Platega API: невозможно разобрать ответ ({response.status}): {text}")
+                raise RuntimeError("Platega API вернул некорректный ответ")
+
+            if response.status not in (200, 201):
+                error_desc = (
+                    data.get('error') or data.get('message') or
+                    data.get('description') or 'Неизвестная ошибка'
+                )
+                logger.error(f"Platega API ошибка {response.status}: {error_desc} | payload={payload}")
+                raise RuntimeError(f"Platega API ошибка: {error_desc}")
+
+            transaction_id = data.get('id') or data.get('transactionId') or data.get('uuid')
+            qr_url = (
+                data.get('redirect') or data.get('redirectUrl') or
+                data.get('url') or data.get('paymentUrl')
+            )
+
+            if not transaction_id or not qr_url:
+                logger.error(f"Platega API не вернул id/url: {data}")
+                raise RuntimeError("Platega API не вернул данные платёжной ссылки")
+
+            qr = qrcode.QRCode(
+                version=1,
+                error_correction=qrcode.constants.ERROR_CORRECT_L,
+                box_size=10,
+                border=4,
+            )
+            qr.add_data(qr_url)
+            qr.make(fit=True)
+
+            img = qr.make_image(fill_color="black", back_color="white")
+            bio = io.BytesIO()
+            img.save(bio, format="PNG")
+            qr_image_data = bio.getvalue()
+
+            logger.info(
+                f"Platega транзакция создана: id={transaction_id}, order_id={order_id}, "
+                f"amount={amount_rub} RUB"
+            )
+
+            return {
+                'platega_transaction_id': str(transaction_id),
+                'qr_image_data': qr_image_data,
+                'qr_url': qr_url,
+                'status': str(data.get('status', 'PENDING')).upper(),
+            }
+
+
+async def check_platega_payment_status(transaction_id: str) -> str:
+    """
+    Проверяет статус транзакции Platega.
+
+    GET https://app.platega.io/transaction/{transaction_id}
+
+    Статусы Platega:
+        - PENDING: в процессе оплаты
+        - CONFIRMED: успешно оплачена
+        - CANCELED: отменена
+        - CHARGEBACKED: возвратная
+
+    Args:
+        transaction_id: ID транзакции в системе Platega
+
+    Returns:
+        Нормализованный статус: 'pending' | 'succeeded' | 'canceled'
+
+    Raises:
+        ValueError: Если учётные данные не настроены
+        RuntimeError: Если API вернул ошибку
+    """
+    merchant_id, secret = get_platega_credentials()
+    if not merchant_id or not secret:
+        raise ValueError("Platega: не настроены merchant_id или secret")
+
+    headers = {
+        "X-MerchantId": merchant_id,
+        "X-Secret": secret,
+        "Accept": "application/json",
+    }
+
+    url = f"{PLATEGA_API_URL}/transaction/{transaction_id}"
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, headers=headers) as response:
+            try:
+                data = await response.json()
+            except Exception:
+                text = await response.text()
+                logger.error(f"Platega статус: невозможно разобрать ответ ({response.status}): {text}")
+                raise RuntimeError("Platega API вернул некорректный ответ")
+
+            if response.status != 200:
+                error_desc = (
+                    data.get('error') or data.get('message') or
+                    data.get('description') or 'Неизвестная ошибка'
+                )
+                logger.error(f"Platega статус ошибка {response.status}: {error_desc}")
+                raise RuntimeError(f"Platega API ошибка: {error_desc}")
+
+            status = str(data.get('status', '')).upper()
+            logger.debug(f"Platega transaction {transaction_id}: status={status}")
+
+            if status == 'CONFIRMED':
+                return 'succeeded'
+            if status in ('CANCELED', 'CANCELLED', 'CHARGEBACKED'):
+                return 'canceled'
+            return 'pending'
+
+
+# ============================================================================
+# CARDLINK — оплата Картой/СБП через REST API (https://cardlink.link)
+# ============================================================================
+
+async def create_cardlink_payment(
+    amount_rub: float,
+    order_id: str,
+    description: str,
+    bot_name: str
+) -> Dict[str, Any]:
+    """
+    Создаёт счёт (bill) в Cardlink API.
+
+    POST https://cardlink.link/api/v1/bill/create
+
+    Тело передаётся как application/x-www-form-urlencoded.
+    Авторизация через Bearer token.
+
+    Отличительная особенность: вместо webhook-а пользователь после оплаты
+    возвращается в бота по deep-link `https://t.me/{bot}?start=cl_Success`
+    (или cl_Fail / cl_Result), что триггерит ту же проверку, что и
+    кнопка «✅ Я оплатил».
+
+    Args:
+        amount_rub: Сумма в рублях
+        order_id: Наш внутренний order_id
+        description: Описание платежа (не используется API, но логируется)
+        bot_name: Username бота (для построения success_url/fail_url)
+
+    Returns:
+        Словарь с ключами:
+            - cardlink_bill_id: ID счёта в системе Cardlink
+            - qr_image_data: PNG-байты QR-кода
+            - qr_url: Ссылка на страницу оплаты
+            - status: Статус платежа
+
+    Raises:
+        ValueError: Если учётные данные не настроены
+        RuntimeError: Если API вернул ошибку
+    """
+    shop_id, api_token = get_cardlink_credentials()
+    if not shop_id or not api_token:
+        raise ValueError("Cardlink: не настроены shop_id или api_token")
+
+    form = aiohttp.FormData()
+    form.add_field("shop_id", shop_id)
+    form.add_field("amount", f"{float(amount_rub):.2f}")
+    form.add_field("order_id", order_id)
+    form.add_field("currency_in", "RUB")
+    form.add_field("type", "normal")
+    form.add_field("description", description[:255])
+    form.add_field("name", description[:100])
+    form.add_field("partner_uuid", "6e7e8f22-3410-4224-8b9c-e61430705963")
+
+    headers = {
+        "Authorization": f"Bearer {api_token}",
+        "Accept": "application/json",
+    }
+
+    url = f"{CARDLINK_API_URL}/api/v1/bill/create"
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, data=form, headers=headers) as response:
+            try:
+                data = await response.json(content_type=None)
+            except Exception:
+                text = await response.text()
+                logger.error(f"Cardlink API: невозможно разобрать ответ ({response.status}): {text}")
+                raise RuntimeError("Cardlink API вернул некорректный ответ")
+
+            if response.status not in (200, 201):
+                error_desc = 'Неизвестная ошибка'
+                validation_details = ''
+                if isinstance(data, dict):
+                    err = data.get('error')
+                    if isinstance(err, dict):
+                        error_desc = err.get('description') or err.get('code') or error_desc
+                    elif isinstance(err, str):
+                        error_desc = err
+                    error_desc = (
+                        data.get('message')
+                        or data.get('description')
+                        or error_desc
+                    )
+                    validation = data.get('validation') or data.get('errors')
+                    if validation:
+                        validation_details = f" | validation={validation}"
+                logger.error(
+                    f"Cardlink API ошибка {response.status}: {error_desc} "
+                    f"| order_id={order_id} | full_response={data}{validation_details}"
+                )
+                raise RuntimeError(f"Cardlink API ошибка: {error_desc}")
+
+            # Ответ может быть вложен в поле 'success' (dict) или лежать в корне.
+            # Если 'success' — это флаг (строка/bool), используем сам data.
+            nested = data.get('success') if isinstance(data, dict) else None
+            payload = nested if isinstance(nested, dict) else data
+
+            bill_id = (
+                payload.get('bill_id') or payload.get('id') or payload.get('uuid')
+                if isinstance(payload, dict) else None
+            )
+            qr_url = (
+                payload.get('link_page_url') or payload.get('url') or payload.get('payment_url')
+                if isinstance(payload, dict) else None
+            )
+
+            if not bill_id or not qr_url:
+                logger.error(f"Cardlink API не вернул bill_id/url: {data}")
+                raise RuntimeError("Cardlink API не вернул данные платёжной ссылки")
+
+            qr = qrcode.QRCode(
+                version=1,
+                error_correction=qrcode.constants.ERROR_CORRECT_L,
+                box_size=10,
+                border=4,
+            )
+            qr.add_data(qr_url)
+            qr.make(fit=True)
+
+            img = qr.make_image(fill_color="black", back_color="white")
+            bio = io.BytesIO()
+            img.save(bio, format="PNG")
+            qr_image_data = bio.getvalue()
+
+            logger.info(
+                f"Cardlink счёт создан: bill_id={bill_id}, order_id={order_id}, "
+                f"amount={amount_rub} RUB"
+            )
+
+            return {
+                'cardlink_bill_id': str(bill_id),
+                'qr_image_data': qr_image_data,
+                'qr_url': qr_url,
+                'status': str(payload.get('status', 'NEW')).upper() if isinstance(payload, dict) else 'NEW',
+            }
+
+
+async def check_cardlink_payment_status(bill_id: str) -> str:
+    """
+    Проверяет статус счёта Cardlink.
+
+    GET https://cardlink.link/api/v1/bill/status?id={bill_id}
+
+    Статусы Cardlink:
+        - NEW / PROCESS / UNDERPAID: в процессе
+        - SUCCESS / OVERPAID: успешно оплачено
+        - FAIL: отменён / неуспешный
+
+    Args:
+        bill_id: ID счёта в системе Cardlink
+
+    Returns:
+        Нормализованный статус: 'pending' | 'succeeded' | 'canceled'
+
+    Raises:
+        ValueError: Если учётные данные не настроены
+        RuntimeError: Если API вернул ошибку
+    """
+    shop_id, api_token = get_cardlink_credentials()
+    if not shop_id or not api_token:
+        raise ValueError("Cardlink: не настроены shop_id или api_token")
+
+    headers = {
+        "Authorization": f"Bearer {api_token}",
+        "Accept": "application/json",
+    }
+
+    url = f"{CARDLINK_API_URL}/api/v1/bill/status"
+    params = {"id": bill_id}
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, params=params, headers=headers) as response:
+            try:
+                data = await response.json(content_type=None)
+            except Exception:
+                text = await response.text()
+                logger.error(f"Cardlink статус: невозможно разобрать ответ ({response.status}): {text}")
+                raise RuntimeError("Cardlink API вернул некорректный ответ")
+
+            if response.status != 200:
+                error_desc = (
+                    (data.get('message') if isinstance(data, dict) else None) or
+                    (data.get('error') if isinstance(data, dict) else None) or
+                    'Неизвестная ошибка'
+                )
+                logger.error(f"Cardlink статус ошибка {response.status}: {error_desc}")
+                raise RuntimeError(f"Cardlink API ошибка: {error_desc}")
+
+            # Ответ может быть вложен в поле 'success' (dict) или лежать в корне.
+            # Если 'success' — это флаг (строка/bool), используем сам data.
+            nested = data.get('success') if isinstance(data, dict) else None
+            payload = nested if isinstance(nested, dict) else data
+            status = ''
+            if isinstance(payload, dict):
+                status = str(payload.get('status', '')).upper()
+
+            logger.debug(f"Cardlink bill {bill_id}: status={status}")
+
+            if status in ('SUCCESS', 'OVERPAID'):
+                return 'succeeded'
+            if status == 'FAIL':
+                return 'canceled'
+            return 'pending'
+
+
 def convert_to_rub_cents(amount_raw: int, payment_type: str, usd_rub_rate: int) -> int:
     """
     Конвертировать сырую сумму в копейки рублей.
-    
+
     Args:
         amount_raw: сырая сумма (звёзды/центы USDT/копейки рублей)
-        payment_type: тип платежа ('stars', 'crypto', 'cards', 'yookassa_qr')
+        payment_type: тип платежа ('stars', 'crypto', 'cards', 'yookassa_qr', 'wata', 'platega')
         usd_rub_rate: курс USD/RUB в копейках
-    
+
     Returns:
         Сумма в копейках рублей
     """

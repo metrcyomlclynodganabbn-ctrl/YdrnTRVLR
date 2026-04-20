@@ -42,6 +42,17 @@ class AdminStates(StatesGroup):
     qr_setup_shop_id = State()       # Ввод Shop ID
     qr_setup_secret_key = State()    # Ввод Secret Key
 
+    # ========== Настройка WATA ==========
+    wata_setup_token = State()       # Ввод JWT-токена WATA
+
+    # ========== Настройка Platega ==========
+    platega_setup_merchant = State()  # Ввод Merchant ID Platega
+    platega_setup_secret = State()    # Ввод Secret Platega
+
+    # ========== Настройка Cardlink ==========
+    cardlink_setup_shop_id = State()    # Ввод Shop ID Cardlink
+    cardlink_setup_api_token = State()  # Ввод API-токена Cardlink
+
     # ========== Реферальная система ==========
     referral_menu = State()          # Главное меню реферальной системы
     referral_level_edit = State()    # Редактирование уровня

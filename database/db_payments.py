@@ -16,6 +16,13 @@ from .db_settings import get_setting, set_setting
 __all__ = [
     'save_yookassa_payment_id',
     'find_order_by_yookassa_id',
+    'save_wata_link_id',
+    'find_order_by_wata_link_id',
+    'save_platega_transaction_id',
+    'find_order_by_platega_transaction_id',
+    'save_cardlink_bill_id',
+    'find_order_by_cardlink_bill_id',
+    'find_latest_pending_cardlink_order_for_user',
     'get_user_payments_stats',
     'get_daily_payments_stats',
     'get_key_payments_history',
@@ -76,6 +83,149 @@ def find_order_by_yookassa_id(yookassa_payment_id: str) -> Optional[Dict[str, An
             "SELECT * FROM payments WHERE yookassa_payment_id = ?",
             (yookassa_payment_id,)
         )
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+def save_wata_link_id(order_id: str, wata_link_id: str) -> bool:
+    """
+    Сохраняет ID платёжной ссылки WATA в запись ордера.
+
+    Args:
+        order_id: Наш внутренний order_id
+        wata_link_id: ID ссылки в системе WATA
+
+    Returns:
+        True если успешно
+    """
+    with get_db() as conn:
+        cursor = conn.execute(
+            "UPDATE payments SET wata_link_id = ? WHERE order_id = ?",
+            (wata_link_id, order_id)
+        )
+        success = cursor.rowcount > 0
+        if success:
+            logger.info(f"Сохранён wata_link_id={wata_link_id} для order_id={order_id}")
+        return success
+
+def find_order_by_wata_link_id(wata_link_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Находит ордер по ID платёжной ссылки WATA.
+
+    Args:
+        wata_link_id: ID ссылки в системе WATA
+
+    Returns:
+        Словарь с данными ордера или None
+    """
+    with get_db() as conn:
+        cursor = conn.execute(
+            "SELECT * FROM payments WHERE wata_link_id = ?",
+            (wata_link_id,)
+        )
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+def save_platega_transaction_id(order_id: str, transaction_id: str) -> bool:
+    """
+    Сохраняет ID транзакции Platega в запись ордера.
+
+    Args:
+        order_id: Наш внутренний order_id
+        transaction_id: ID транзакции в системе Platega
+
+    Returns:
+        True если успешно
+    """
+    with get_db() as conn:
+        cursor = conn.execute(
+            "UPDATE payments SET platega_transaction_id = ? WHERE order_id = ?",
+            (transaction_id, order_id)
+        )
+        success = cursor.rowcount > 0
+        if success:
+            logger.info(f"Сохранён platega_transaction_id={transaction_id} для order_id={order_id}")
+        return success
+
+def find_order_by_platega_transaction_id(transaction_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Находит ордер по ID транзакции Platega.
+
+    Args:
+        transaction_id: ID транзакции в системе Platega
+
+    Returns:
+        Словарь с данными ордера или None
+    """
+    with get_db() as conn:
+        cursor = conn.execute(
+            "SELECT * FROM payments WHERE platega_transaction_id = ?",
+            (transaction_id,)
+        )
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+def save_cardlink_bill_id(order_id: str, bill_id: str) -> bool:
+    """
+    Сохраняет bill_id Cardlink в запись ордера.
+
+    Args:
+        order_id: Наш внутренний order_id
+        bill_id: ID счёта в системе Cardlink
+
+    Returns:
+        True если успешно
+    """
+    with get_db() as conn:
+        cursor = conn.execute(
+            "UPDATE payments SET cardlink_bill_id = ? WHERE order_id = ?",
+            (bill_id, order_id)
+        )
+        success = cursor.rowcount > 0
+        if success:
+            logger.info(f"Сохранён cardlink_bill_id={bill_id} для order_id={order_id}")
+        return success
+
+def find_order_by_cardlink_bill_id(bill_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Находит ордер по bill_id Cardlink.
+
+    Args:
+        bill_id: ID счёта в системе Cardlink
+
+    Returns:
+        Словарь с данными ордера или None
+    """
+    with get_db() as conn:
+        cursor = conn.execute(
+            "SELECT * FROM payments WHERE cardlink_bill_id = ?",
+            (bill_id,)
+        )
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+def find_latest_pending_cardlink_order_for_user(user_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Находит последний pending-ордер типа 'cardlink' для пользователя.
+
+    Используется при возврате пользователя по deep-link cl_Success/cl_Fail/cl_Result,
+    чтобы понять, какой именно платёж проверять.
+
+    Args:
+        user_id: Внутренний ID пользователя
+
+    Returns:
+        Словарь с данными ордера или None
+    """
+    with get_db() as conn:
+        cursor = conn.execute("""
+            SELECT * FROM payments
+            WHERE user_id = ?
+              AND payment_type = 'cardlink'
+              AND status = 'pending'
+              AND cardlink_bill_id IS NOT NULL
+            ORDER BY id DESC
+            LIMIT 1
+        """, (user_id,))
         row = cursor.fetchone()
         return dict(row) if row else None
 
@@ -171,25 +321,70 @@ def get_daily_payments_stats() -> Dict[str, Any]:
         
         # 4. Считаем QR-оплату (ЮКасса QR/СБП - Рубли)
         cursor = conn.execute("""
-            SELECT 
+            SELECT
                 COUNT(*) as count,
                 COALESCE(SUM(t.price_rub), 0) as total_rub
             FROM payments p
             LEFT JOIN tariffs t ON p.tariff_id = t.id
-            WHERE p.status = 'paid' 
+            WHERE p.status = 'paid'
             AND p.payment_type = 'yookassa_qr'
             AND p.paid_at >= datetime('now', '-1 day')
         """)
         qr_row = cursor.fetchone()
-        
+
+        # 5. Считаем WATA (Карта/СБП - Рубли)
+        cursor = conn.execute("""
+            SELECT
+                COUNT(*) as count,
+                COALESCE(SUM(t.price_rub), 0) as total_rub
+            FROM payments p
+            LEFT JOIN tariffs t ON p.tariff_id = t.id
+            WHERE p.status = 'paid'
+            AND p.payment_type = 'wata'
+            AND p.paid_at >= datetime('now', '-1 day')
+        """)
+        wata_row = cursor.fetchone()
+
+        # 6. Считаем Platega (СБП - Рубли)
+        cursor = conn.execute("""
+            SELECT
+                COUNT(*) as count,
+                COALESCE(SUM(t.price_rub), 0) as total_rub
+            FROM payments p
+            LEFT JOIN tariffs t ON p.tariff_id = t.id
+            WHERE p.status = 'paid'
+            AND p.payment_type = 'platega'
+            AND p.paid_at >= datetime('now', '-1 day')
+        """)
+        platega_row = cursor.fetchone()
+
+        # 7. Считаем Cardlink (Карта/СБП - Рубли)
+        cursor = conn.execute("""
+            SELECT
+                COUNT(*) as count,
+                COALESCE(SUM(t.price_rub), 0) as total_rub
+            FROM payments p
+            LEFT JOIN tariffs t ON p.tariff_id = t.id
+            WHERE p.status = 'paid'
+            AND p.payment_type = 'cardlink'
+            AND p.paid_at >= datetime('now', '-1 day')
+        """)
+        cardlink_row = cursor.fetchone()
+
         paid_count = (crypto_row['count'] if crypto_row else 0) + \
                      (stars_row['count'] if stars_row else 0) + \
                      (cards_row['count'] if cards_row else 0) + \
-                     (qr_row['count'] if qr_row else 0)
+                     (qr_row['count'] if qr_row else 0) + \
+                     (wata_row['count'] if wata_row else 0) + \
+                     (platega_row['count'] if platega_row else 0) + \
+                     (cardlink_row['count'] if cardlink_row else 0)
         total_cents = crypto_row['total_cents'] if crypto_row else 0
         total_stars = stars_row['total_stars'] if stars_row else 0
         total_rub = (cards_row['total_rub'] if cards_row else 0) + \
-                    (qr_row['total_rub'] if qr_row else 0)
+                    (qr_row['total_rub'] if qr_row else 0) + \
+                    (wata_row['total_rub'] if wata_row else 0) + \
+                    (platega_row['total_rub'] if platega_row else 0) + \
+                    (cardlink_row['total_rub'] if cardlink_row else 0)
         
         return {
             'paid_count': paid_count,

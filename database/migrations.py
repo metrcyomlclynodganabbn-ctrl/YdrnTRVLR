@@ -34,7 +34,7 @@ def _add_column(conn: sqlite3.Connection, table: str, column_def: str) -> None:
 INITIAL_VERSION = 21
 
 # Текущая версия схемы БД (инкрементируется при добавлении новых миграций)
-LATEST_VERSION = 22
+LATEST_VERSION = 25
 
 
 def get_current_version() -> int:
@@ -132,6 +132,8 @@ def migration_initial(conn: sqlite3.Connection) -> None:
         ('crypto_enabled', '0'),
         ('crypto_item_url', ''),
         ('crypto_secret_key', ''),
+        ('wata_enabled', '0'),
+        ('wata_jwt_token', ''),
 
         ('stars_enabled', '0'),
         ('demo_payment_enabled', '0'),
@@ -272,6 +274,7 @@ def migration_initial(conn: sqlite3.Connection) -> None:
             status TEXT DEFAULT 'paid',
             paid_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             yookassa_payment_id TEXT,
+            wata_link_id TEXT,
             FOREIGN KEY (vpn_key_id) REFERENCES vpn_keys(id),
             FOREIGN KEY (user_id) REFERENCES users(id),
             FOREIGN KEY (tariff_id) REFERENCES tariffs(id)
@@ -413,9 +416,10 @@ def migration_initial(conn: sqlite3.Connection) -> None:
                 {"id": "btn_pay_stars",   "label": "⭐ Оплатить звёздами",      "color": "primary",   "row": 1, "col": 0, "is_hidden": False, "action_type": "system", "action_value": None},
                 {"id": "btn_pay_cards",   "label": "💳 Оплатить картой",        "color": "primary",   "row": 2, "col": 0, "is_hidden": False, "action_type": "system", "action_value": None},
                 {"id": "btn_pay_qr",      "label": "📱 QR-оплата (Карта/СБП)",  "color": "primary",   "row": 3, "col": 0, "is_hidden": False, "action_type": "system", "action_value": None},
-                {"id": "btn_pay_demo",    "label": "🏦 Демо оплата (РФ карта)", "color": "primary",   "row": 4, "col": 0, "is_hidden": False, "action_type": "system", "action_value": None},
-                {"id": "btn_pay_balance", "label": "💎 Использовать баланс",    "color": "primary",   "row": 5, "col": 0, "is_hidden": False, "action_type": "system", "action_value": None},
-                {"id": "btn_back_main",   "label": "🈴 На главную",             "color": "secondary", "row": 6, "col": 0, "is_hidden": False, "action_type": "internal", "action_value": "cmd_back_main"},
+                {"id": "btn_pay_wata",    "label": "🌊 Оплата WATA (Карта/СБП)", "color": "primary",  "row": 4, "col": 0, "is_hidden": False, "action_type": "system", "action_value": None},
+                {"id": "btn_pay_demo",    "label": "🏦 Демо оплата (РФ карта)", "color": "primary",   "row": 5, "col": 0, "is_hidden": False, "action_type": "system", "action_value": None},
+                {"id": "btn_pay_balance", "label": "💎 Использовать баланс",    "color": "primary",   "row": 6, "col": 0, "is_hidden": False, "action_type": "system", "action_value": None},
+                {"id": "btn_back_main",   "label": "🈴 На главную",             "color": "secondary", "row": 7, "col": 0, "is_hidden": False, "action_type": "internal", "action_value": "cmd_back_main"},
             ], ensure_ascii=False),
         },
         'referral': {
@@ -518,8 +522,241 @@ def migration_22(conn):
     logger.info("Миграция v22 применена: стандартный режим крипто-оплаты удалён")
 
 
+def migration_23(conn):
+    """
+    Миграция v23: добавление платёжного метода WATA.
+
+    - Добавляет настройки wata_enabled и wata_jwt_token
+    - Добавляет колонку wata_link_id в таблицу payments
+    - Добавляет кнопку btn_pay_wata в дефолтную раскладку страницы prepayment
+    """
+    # 1. Настройки WATA
+    conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('wata_enabled', '0')")
+    conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('wata_jwt_token', '')")
+
+    # 2. Колонка wata_link_id для отслеживания платежей WATA
+    _add_column(conn, "payments", "wata_link_id TEXT")
+
+    # 3. Обновляем buttons_default страницы prepayment — вставляем btn_pay_wata после btn_pay_qr
+    cursor = conn.execute("SELECT buttons_default FROM pages WHERE page_key = 'prepayment'")
+    row = cursor.fetchone()
+    if row:
+        try:
+            buttons = json.loads(row['buttons_default'])
+        except (json.JSONDecodeError, TypeError):
+            buttons = []
+
+        existing_ids = {b.get('id') for b in buttons if isinstance(b, dict)}
+        if 'btn_pay_wata' not in existing_ids:
+            # Находим строку btn_pay_qr и вставляем wata после него, сдвигая остальные строки
+            qr_row = None
+            for b in buttons:
+                if isinstance(b, dict) and b.get('id') == 'btn_pay_qr':
+                    qr_row = b.get('row', 0)
+                    break
+
+            if qr_row is None:
+                # Нет btn_pay_qr — вставляем перед btn_back_main или в конец
+                max_row = max((b.get('row', 0) for b in buttons if isinstance(b, dict)), default=-1)
+                new_row = max_row + 1
+                # Если последняя кнопка — btn_back_main, вставляем перед ней
+                for b in buttons:
+                    if isinstance(b, dict) and b.get('id') == 'btn_back_main':
+                        new_row = b.get('row', new_row)
+                        b['row'] = new_row + 1
+                        break
+                buttons.append({
+                    "id": "btn_pay_wata",
+                    "label": "🌊 Оплата WATA (Карта/СБП)",
+                    "color": "primary",
+                    "row": new_row,
+                    "col": 0,
+                    "is_hidden": False,
+                    "action_type": "system",
+                    "action_value": None,
+                })
+            else:
+                # Сдвигаем все строки > qr_row вниз на 1
+                for b in buttons:
+                    if isinstance(b, dict) and b.get('row', 0) > qr_row:
+                        b['row'] = b['row'] + 1
+                buttons.append({
+                    "id": "btn_pay_wata",
+                    "label": "🌊 Оплата WATA (Карта/СБП)",
+                    "color": "primary",
+                    "row": qr_row + 1,
+                    "col": 0,
+                    "is_hidden": False,
+                    "action_type": "system",
+                    "action_value": None,
+                })
+
+            conn.execute(
+                "UPDATE pages SET buttons_default = ? WHERE page_key = 'prepayment'",
+                (json.dumps(buttons, ensure_ascii=False),)
+            )
+            logger.info("Кнопка btn_pay_wata добавлена в дефолтную раскладку prepayment")
+
+    logger.info("Миграция v23 применена: добавлен платёжный метод WATA")
+
+
+def migration_24(conn):
+    """
+    Миграция v24: добавление платёжного метода Platega (СБП/Карта).
+
+    - Добавляет настройки platega_enabled, platega_merchant_id, platega_secret
+    - Добавляет колонку platega_transaction_id в таблицу payments
+    - Добавляет кнопку btn_pay_platega в дефолтную раскладку страницы prepayment
+    """
+    # 1. Настройки Platega
+    conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('platega_enabled', '0')")
+    conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('platega_merchant_id', '')")
+    conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('platega_secret', '')")
+
+    # 2. Колонка platega_transaction_id для отслеживания платежей Platega
+    _add_column(conn, "payments", "platega_transaction_id TEXT")
+
+    # 3. Обновляем buttons_default страницы prepayment — вставляем btn_pay_platega после btn_pay_wata
+    cursor = conn.execute("SELECT buttons_default FROM pages WHERE page_key = 'prepayment'")
+    row = cursor.fetchone()
+    if row:
+        try:
+            buttons = json.loads(row['buttons_default'])
+        except (json.JSONDecodeError, TypeError):
+            buttons = []
+
+        existing_ids = {b.get('id') for b in buttons if isinstance(b, dict)}
+        if 'btn_pay_platega' not in existing_ids:
+            wata_row = None
+            for b in buttons:
+                if isinstance(b, dict) and b.get('id') == 'btn_pay_wata':
+                    wata_row = b.get('row', 0)
+                    break
+
+            if wata_row is None:
+                # Нет btn_pay_wata — вставляем перед btn_back_main или в конец
+                max_row = max((b.get('row', 0) for b in buttons if isinstance(b, dict)), default=-1)
+                new_row = max_row + 1
+                for b in buttons:
+                    if isinstance(b, dict) and b.get('id') == 'btn_back_main':
+                        new_row = b.get('row', new_row)
+                        b['row'] = new_row + 1
+                        break
+                buttons.append({
+                    "id": "btn_pay_platega",
+                    "label": "💸 Оплата Platega (СБП)",
+                    "color": "primary",
+                    "row": new_row,
+                    "col": 0,
+                    "is_hidden": False,
+                    "action_type": "system",
+                    "action_value": None,
+                })
+            else:
+                # Сдвигаем все строки > wata_row вниз на 1
+                for b in buttons:
+                    if isinstance(b, dict) and b.get('row', 0) > wata_row:
+                        b['row'] = b['row'] + 1
+                buttons.append({
+                    "id": "btn_pay_platega",
+                    "label": "💸 Оплата Platega (СБП)",
+                    "color": "primary",
+                    "row": wata_row + 1,
+                    "col": 0,
+                    "is_hidden": False,
+                    "action_type": "system",
+                    "action_value": None,
+                })
+
+            conn.execute(
+                "UPDATE pages SET buttons_default = ? WHERE page_key = 'prepayment'",
+                (json.dumps(buttons, ensure_ascii=False),)
+            )
+            logger.info("Кнопка btn_pay_platega добавлена в дефолтную раскладку prepayment")
+
+    logger.info("Миграция v24 применена: добавлен платёжный метод Platega (СБП)")
+
+
+def migration_25(conn):
+    """
+    Миграция v25: добавление платёжного метода Cardlink (Карта/СБП, cardlink.link).
+
+    - Добавляет настройки cardlink_enabled, cardlink_shop_id, cardlink_api_token
+    - Добавляет колонку cardlink_bill_id в таблицу payments
+    - Добавляет кнопку btn_pay_cardlink в дефолтную раскладку страницы prepayment
+    """
+    # 1. Настройки Cardlink
+    conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('cardlink_enabled', '0')")
+    conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('cardlink_shop_id', '')")
+    conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('cardlink_api_token', '')")
+
+    # 2. Колонка cardlink_bill_id для отслеживания платежей Cardlink
+    _add_column(conn, "payments", "cardlink_bill_id TEXT")
+
+    # 3. Обновляем buttons_default страницы prepayment — вставляем btn_pay_cardlink после btn_pay_platega
+    cursor = conn.execute("SELECT buttons_default FROM pages WHERE page_key = 'prepayment'")
+    row = cursor.fetchone()
+    if row:
+        try:
+            buttons = json.loads(row['buttons_default'])
+        except (json.JSONDecodeError, TypeError):
+            buttons = []
+
+        existing_ids = {b.get('id') for b in buttons if isinstance(b, dict)}
+        if 'btn_pay_cardlink' not in existing_ids:
+            platega_row = None
+            for b in buttons:
+                if isinstance(b, dict) and b.get('id') == 'btn_pay_platega':
+                    platega_row = b.get('row', 0)
+                    break
+
+            if platega_row is None:
+                max_row = max((b.get('row', 0) for b in buttons if isinstance(b, dict)), default=-1)
+                new_row = max_row + 1
+                for b in buttons:
+                    if isinstance(b, dict) and b.get('id') == 'btn_back_main':
+                        new_row = b.get('row', new_row)
+                        b['row'] = new_row + 1
+                        break
+                buttons.append({
+                    "id": "btn_pay_cardlink",
+                    "label": "🔗 Оплата Cardlink (Карта/СБП)",
+                    "color": "primary",
+                    "row": new_row,
+                    "col": 0,
+                    "is_hidden": False,
+                    "action_type": "system",
+                    "action_value": None,
+                })
+            else:
+                for b in buttons:
+                    if isinstance(b, dict) and b.get('row', 0) > platega_row:
+                        b['row'] = b['row'] + 1
+                buttons.append({
+                    "id": "btn_pay_cardlink",
+                    "label": "🔗 Оплата Cardlink (Карта/СБП)",
+                    "color": "primary",
+                    "row": platega_row + 1,
+                    "col": 0,
+                    "is_hidden": False,
+                    "action_type": "system",
+                    "action_value": None,
+                })
+
+            conn.execute(
+                "UPDATE pages SET buttons_default = ? WHERE page_key = 'prepayment'",
+                (json.dumps(buttons, ensure_ascii=False),)
+            )
+            logger.info("Кнопка btn_pay_cardlink добавлена в дефолтную раскладку prepayment")
+
+    logger.info("Миграция v25 применена: добавлен платёжный метод Cardlink (Карта/СБП)")
+
+
 MIGRATIONS = {
     22: migration_22,
+    23: migration_23,
+    24: migration_24,
+    25: migration_25,
 }
 
 

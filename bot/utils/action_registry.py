@@ -89,6 +89,36 @@ def _resolve_pay_qr(ctx: dict) -> Optional[dict]:
     return {"callback_data": "pay_qr"}
 
 
+def _resolve_pay_wata(ctx: dict) -> Optional[dict]:
+    """Кнопка оплаты через WATA (карта/СБП)."""
+    from database.requests import is_wata_configured
+
+    if not is_wata_configured():
+        return None
+
+    return {"callback_data": "pay_wata"}
+
+
+def _resolve_pay_platega(ctx: dict) -> Optional[dict]:
+    """Кнопка оплаты через Platega (СБП)."""
+    from database.requests import is_platega_configured
+
+    if not is_platega_configured():
+        return None
+
+    return {"callback_data": "pay_platega"}
+
+
+def _resolve_pay_cardlink(ctx: dict) -> Optional[dict]:
+    """Кнопка оплаты через Cardlink (Карта/СБП)."""
+    from database.requests import is_cardlink_configured
+
+    if not is_cardlink_configured():
+        return None
+
+    return {"callback_data": "pay_cardlink"}
+
+
 def _resolve_pay_demo(ctx: dict) -> Optional[dict]:
     """Кнопка демо-оплаты (РФ карта)."""
     from database.requests import is_demo_payment_enabled
@@ -133,6 +163,9 @@ SYSTEM_BUTTONS: Dict[str, Callable[[dict], Optional[dict]]] = {
     "btn_pay_stars":   _resolve_pay_stars,
     "btn_pay_cards":   _resolve_pay_cards,
     "btn_pay_qr":      _resolve_pay_qr,
+    "btn_pay_wata":    _resolve_pay_wata,
+    "btn_pay_platega": _resolve_pay_platega,
+    "btn_pay_cardlink": _resolve_pay_cardlink,
     "btn_pay_demo":    _resolve_pay_demo,
     "btn_pay_balance": _resolve_pay_balance,
 }

@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Optional
 
 from .admin_misc import back_button, home_button, cancel_button
 
-def payments_menu_kb(stars_enabled: bool, crypto_enabled: bool, cards_enabled: bool, qr_enabled: bool=False, monthly_reset_enabled: bool=False, demo_enabled: bool=False) -> InlineKeyboardMarkup:
+def payments_menu_kb(stars_enabled: bool, crypto_enabled: bool, cards_enabled: bool, qr_enabled: bool=False, monthly_reset_enabled: bool=False, demo_enabled: bool=False, wata_enabled: bool=False, platega_enabled: bool=False, cardlink_enabled: bool=False) -> InlineKeyboardMarkup:
     """
     Главное меню раздела оплат.
 
@@ -15,6 +15,9 @@ def payments_menu_kb(stars_enabled: bool, crypto_enabled: bool, cards_enabled: b
         qr_enabled: Включена ли прямая QR-оплата ЮКасса
         monthly_reset_enabled: Включён ли ежемесячный автосброс трафика
         demo_enabled: Включена ли демо-оплата
+        wata_enabled: Включена ли оплата через WATA
+        platega_enabled: Включена ли оплата через Platega
+        cardlink_enabled: Включена ли оплата через Cardlink
     """
     builder = InlineKeyboardBuilder()
     stars_status = '✅' if stars_enabled else '❌'
@@ -25,6 +28,12 @@ def payments_menu_kb(stars_enabled: bool, crypto_enabled: bool, cards_enabled: b
     builder.row(InlineKeyboardButton(text=f'💳 Оплата картами (ЮКасса): {cards_status}', callback_data='admin_payments_cards'))
     qr_status = '✅' if qr_enabled else '❌'
     builder.row(InlineKeyboardButton(text=f'📱 QR-оплата (ЮКасса/СБП): {qr_status}', callback_data='admin_payments_qr'))
+    wata_status = '✅' if wata_enabled else '❌'
+    builder.row(InlineKeyboardButton(text=f'🌊 Оплата WATA (Карта/СБП): {wata_status}', callback_data='admin_payments_wata'))
+    platega_status = '✅' if platega_enabled else '❌'
+    builder.row(InlineKeyboardButton(text=f'💸 Оплата Platega (СБП): {platega_status}', callback_data='admin_payments_platega'))
+    cardlink_status = '✅' if cardlink_enabled else '❌'
+    builder.row(InlineKeyboardButton(text=f'🔗 Оплата Cardlink (Карта/СБП) 🌟 Рекомендованный: {cardlink_status}', callback_data='admin_payments_cardlink'))
     demo_status = '✅' if demo_enabled else '❌'
     builder.row(InlineKeyboardButton(text=f'💳 Демо оплата (РФ): {demo_status}', callback_data='admin_payments_toggle_demo'))
     reset_status = '✅' if monthly_reset_enabled else '❌'
@@ -33,6 +42,53 @@ def payments_menu_kb(stars_enabled: bool, crypto_enabled: bool, cards_enabled: b
     builder.row(InlineKeyboardButton(text='📋 Тарифы', callback_data='admin_tariffs'))
     builder.row(InlineKeyboardButton(text='🎁 Пробная подписка', callback_data='admin_trial'))
     builder.row(back_button('admin_panel'), home_button())
+    return builder.as_markup()
+
+
+def wata_management_kb(is_enabled: bool) -> InlineKeyboardMarkup:
+    """
+    Меню управления оплатой через WATA.
+
+    Args:
+        is_enabled: Включена ли WATA-оплата сейчас
+    """
+    builder = InlineKeyboardBuilder()
+    toggle_text = 'Выключить 🔴' if is_enabled else 'Включить 🟢'
+    builder.row(InlineKeyboardButton(text=toggle_text, callback_data='admin_wata_mgmt_toggle'))
+    builder.row(InlineKeyboardButton(text='🔑 Изменить JWT-токен', callback_data='admin_wata_mgmt_edit_token'))
+    builder.row(back_button('admin_payments'), home_button())
+    return builder.as_markup()
+
+
+def platega_management_kb(is_enabled: bool) -> InlineKeyboardMarkup:
+    """
+    Меню управления оплатой через Platega.
+
+    Args:
+        is_enabled: Включена ли Platega-оплата сейчас
+    """
+    builder = InlineKeyboardBuilder()
+    toggle_text = 'Выключить 🔴' if is_enabled else 'Включить 🟢'
+    builder.row(InlineKeyboardButton(text=toggle_text, callback_data='admin_platega_mgmt_toggle'))
+    builder.row(InlineKeyboardButton(text='🆔 Изменить Merchant ID', callback_data='admin_platega_mgmt_edit_merchant'))
+    builder.row(InlineKeyboardButton(text='🔐 Изменить Secret', callback_data='admin_platega_mgmt_edit_secret'))
+    builder.row(back_button('admin_payments'), home_button())
+    return builder.as_markup()
+
+
+def cardlink_management_kb(is_enabled: bool) -> InlineKeyboardMarkup:
+    """
+    Меню управления оплатой через Cardlink.
+
+    Args:
+        is_enabled: Включена ли Cardlink-оплата сейчас
+    """
+    builder = InlineKeyboardBuilder()
+    toggle_text = 'Выключить 🔴' if is_enabled else 'Включить 🟢'
+    builder.row(InlineKeyboardButton(text=toggle_text, callback_data='admin_cardlink_mgmt_toggle'))
+    builder.row(InlineKeyboardButton(text='🆔 Изменить Shop ID', callback_data='admin_cardlink_mgmt_edit_shop_id'))
+    builder.row(InlineKeyboardButton(text='🔐 Изменить API-токен', callback_data='admin_cardlink_mgmt_edit_api_token'))
+    builder.row(back_button('admin_payments'), home_button())
     return builder.as_markup()
 
 def crypto_setup_kb(step: int) -> InlineKeyboardMarkup:

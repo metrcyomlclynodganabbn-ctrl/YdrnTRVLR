@@ -124,8 +124,15 @@ async def handle_users_shared(message: Message, state: FSMContext):
     users_shared: UsersShared = message.users_shared
     if users_shared.users:
         telegram_id = users_shared.users[0].user_id
+        import asyncio
         temp = await message.answer('⏳', reply_markup=ReplyKeyboardRemove())
-        await temp.delete()
+        async def _delete_temp():
+            await asyncio.sleep(2.0)
+            try:
+                await temp.delete()
+            except:
+                pass
+        asyncio.create_task(_delete_temp())
         await _show_user_view(message, state, telegram_id)
 
 @router.message(AdminStates.waiting_user_id, F.text, ~F.text.startswith('/'))
@@ -135,8 +142,15 @@ async def process_user_search_input(message: Message, state: FSMContext):
         return
         
     if message.text == '❌ Отмена':
+        import asyncio
         temp = await message.answer('⏳', reply_markup=ReplyKeyboardRemove())
-        await temp.delete()
+        async def _delete_temp():
+            await asyncio.sleep(2.0)
+            try:
+                await temp.delete()
+            except:
+                pass
+        asyncio.create_task(_delete_temp())
         await state.set_state(AdminStates.users_menu)
         await state.update_data(users_filter='all', users_page=0)
         from database.requests import get_users_stats
@@ -181,6 +195,13 @@ async def process_user_search_input(message: Message, state: FSMContext):
             await safe_edit_or_send(message, '❌ Введите telegram_id (число), @username или panel_email из панели', reply_markup=cancel_reply_kb, force_new=True)
             return
             
+    import asyncio
     temp = await message.answer('⏳', reply_markup=ReplyKeyboardRemove())
-    await temp.delete()
+    async def _delete_temp():
+        await asyncio.sleep(2.0)
+        try:
+            await temp.delete()
+        except:
+            pass
+    asyncio.create_task(_delete_temp())
     await _show_user_view(message, state, user['telegram_id'])

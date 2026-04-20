@@ -576,7 +576,7 @@ async def check_and_notify_updates(bot: Bot) -> None:
             # Если есть блокирующий коммит — добавляем предупреждение
             if has_blocking and blocking_commit:
                 blocking_msg = blocking_commit['message'].lstrip('!')
-                notify_text += f"\n\n⚠️ Среди обновлений есть <b>блокирующий коммит</b> — обновление нужно выполнять вручную.\n<code>{blocking_msg}</code>"
+                notify_text += f"\n\n⚠️ Среди обновлений есть <b>блокирующий коммит</b>.\n<code>{blocking_msg}</code>"
             
             # Отправляем уведомления админам
             for admin_id in ADMIN_IDS:

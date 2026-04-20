@@ -386,27 +386,65 @@ async def force_overwrite_confirmed(callback: CallbackQuery, state: FSMContext):
     
     await safe_edit_or_send(callback.message, 
         "🔄 <b>Принудительная перезапись...</b>\n\n"
-        "Связываюсь с репозиторием и перезаписываю файлы. Пожалуйста, подождите..."
+        "Связываюсь с репозиторием и проверяю обновления..."
     )
     
-    # Выполняем принудительный git fetch и reset
-    success, message = force_pull_updates()
+    # Проверяем наличие блокирующих коммитов перед перезаписью
+    from bot.utils.git_utils import get_pending_commits_list, find_first_blocking_commit
     
-    if not success:
+    success_fetch, pending_commits = get_pending_commits_list()
+    blocking_commit = find_first_blocking_commit(pending_commits) if success_fetch else None
+    
+    if blocking_commit:
+        # Есть блокирующий коммит — обновляемся только до него (через reset --hard)
+        success, message = pull_to_commit(blocking_commit['hash'])
+        
+        if not success:
+            await safe_edit_or_send(callback.message, 
+                f"❌ <b>Ошибка перезаписи</b>\n\n{message}",
+                reply_markup=back_and_home_kb("admin_bot_settings")
+            )
+            await callback.answer()
+            return
+        
+        # Ставим блокировку обновлений
+        set_update_blocked()
+        
+        blocking_msg = blocking_commit['message'].lstrip('!')
+        blocking_hash = blocking_commit['hash'][:8]
+        
+        logger.info(f"🔄 Принудительная перезапись до блокирующего коммита {blocking_hash} администратором {callback.from_user.id}")
+        
         await safe_edit_or_send(callback.message, 
-            f"❌ <b>Ошибка перезаписи</b>\n\n{message}",
-            reply_markup=back_and_home_kb("admin_bot_settings")
+            f"✅ <b>Обновлено до блокирующего коммита!</b>\n\n{message}\n\n"
+            f"🚫 Среди обновлений найден <b>блокирующий коммит</b> <code>{blocking_hash}</code>:\n"
+            f"<code>\n{blocking_msg}\n</code>\n\n"
+            "⚠️ После перезапуска выполните требуемые действия перед следующим обновлением.\n\n"
+            "🔄 Перезапуск бота через 2 секунды..."
         )
-        await callback.answer()
-        return
+    else:
+        # Нет блокирующих коммитов — полная перезапись
+        success, message = force_pull_updates()
+        
+        if not success:
+            await safe_edit_or_send(callback.message, 
+                f"❌ <b>Ошибка перезаписи</b>\n\n{message}",
+                reply_markup=back_and_home_kb("admin_bot_settings")
+            )
+            await callback.answer()
+            return
+        
+        logger.info(f"🔄 Бот принудительно перезаписан администратором {callback.from_user.id}")
+        
+        await safe_edit_or_send(callback.message, 
+            f"✅ <b>Успешно!</b>\n\n{message}\n\n"
+            "🔄 Перезапуск бота через 2 секунды..."
+        )
     
-    logger.info(f"🔄 Бот принудительно перезаписан администратором {callback.from_user.id}")
-    
-    await safe_edit_or_send(callback.message, 
-        f"✅ <b>Успешно!</b>\n\n{message}\n\n"
-        "🔄 Перезапуск бота через 2 секунды..."
-    )
     await callback.answer("Бот перезапускается...", show_alert=True)
+    
+    # Очищаем FSM state
+    await state.clear()
     
     # Даём время на отправку сообщения
     await asyncio.sleep(2)

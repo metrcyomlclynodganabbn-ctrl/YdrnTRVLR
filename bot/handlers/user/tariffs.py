@@ -13,7 +13,9 @@ async def buy_key_handler(callback: CallbackQuery):
     """Страница «Купить ключ» с условиями и способами оплаты."""
     from database.requests import (
         is_crypto_configured, is_stars_enabled, is_cards_enabled,
-        is_yookassa_qr_configured, is_demo_payment_enabled,
+        is_yookassa_qr_configured, is_wata_configured, is_platega_configured,
+        is_cardlink_configured,
+        is_demo_payment_enabled,
         get_user_internal_id, create_pending_order,
         get_setting,
     )
@@ -25,10 +27,13 @@ async def buy_key_handler(callback: CallbackQuery):
     stars_enabled = is_stars_enabled()
     cards_enabled = is_cards_enabled()
     yookassa_qr = is_yookassa_qr_configured()
+    wata_enabled = is_wata_configured()
+    platega_enabled = is_platega_configured()
+    cardlink_enabled = is_cardlink_configured()
     demo_enabled = is_demo_payment_enabled()
 
     # Проверка: хотя бы один способ оплаты настроен
-    if not crypto_configured and not stars_enabled and not cards_enabled and not yookassa_qr and not demo_enabled:
+    if not crypto_configured and not stars_enabled and not cards_enabled and not yookassa_qr and not wata_enabled and not platega_enabled and not cardlink_enabled and not demo_enabled:
         await safe_edit_or_send(
             callback.message,
             '💳 <b>Купить ключ</b>\n\n😔 К сожалению, сейчас оплата недоступна.\n\nПопробуйте позже или обратитесь в поддержку.',

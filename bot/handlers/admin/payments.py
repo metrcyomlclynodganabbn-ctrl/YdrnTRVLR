@@ -9,7 +9,7 @@
 """
 import logging
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, LinkPreviewOptions
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup
 from aiogram.fsm.context import FSMContext
 
 from config import ADMIN_IDS
@@ -20,7 +20,10 @@ from database.requests import (
     is_stars_enabled,
     is_cards_enabled,
     is_yookassa_qr_enabled,
-    is_demo_payment_enabled
+    is_demo_payment_enabled,
+    is_wata_enabled,
+    is_platega_enabled,
+    is_cardlink_enabled,
 )
 from bot.states.admin_states import (
     AdminStates,
@@ -36,6 +39,9 @@ from bot.keyboards.admin import (
     edit_crypto_kb,
     crypto_management_kb,
     cards_management_kb,
+    wata_management_kb,
+    platega_management_kb,
+    cardlink_management_kb,
     back_and_home_kb
 )
 from bot.utils.text import escape_html, safe_edit_or_send
@@ -98,6 +104,9 @@ async def show_payments_menu(callback: CallbackQuery, state: FSMContext):
     cards = is_cards_enabled()
     qr = is_yookassa_qr_enabled()
     demo = is_demo_payment_enabled()
+    wata = is_wata_enabled()
+    platega = is_platega_enabled()
+    cardlink = is_cardlink_enabled()
 
     text = (
         "💳 <b>Настройки оплаты</b>\n\n"
@@ -129,6 +138,21 @@ async def show_payments_menu(callback: CallbackQuery, state: FSMContext):
     else:
         text += "⚪ <b>QR-оплата (ЮКасса прямая/СБП)</b>\n"
 
+    if wata:
+        text += "🟢 <b>Оплата WATA (Карта/СБП)</b>\n"
+    else:
+        text += "⚪ <b>Оплата WATA (Карта/СБП)</b>\n"
+
+    if platega:
+        text += "🟢 <b>Оплата Platega (СБП)</b>\n"
+    else:
+        text += "⚪ <b>Оплата Platega (СБП)</b>\n"
+
+    if cardlink:
+        text += "🟢 <b>Оплата Cardlink (Карта/СБП)</b> 🌟 <b>Рекомендованный</b>\n"
+    else:
+        text += "⚪ <b>Оплата Cardlink (Карта/СБП)</b> 🌟 <b>Рекомендованный</b>\n"
+
     if demo:
         text += "🟢 <b>Демо оплата (РФ)</b>\n"
     else:
@@ -136,9 +160,9 @@ async def show_payments_menu(callback: CallbackQuery, state: FSMContext):
 
     monthly_reset = get_setting('monthly_traffic_reset_enabled', '0') == '1'
 
-    await safe_edit_or_send(callback.message, 
+    await safe_edit_or_send(callback.message,
         text,
-        reply_markup=payments_menu_kb(stars, crypto, cards, qr, monthly_reset, demo)
+        reply_markup=payments_menu_kb(stars, crypto, cards, qr, monthly_reset, demo, wata, platega, cardlink)
     )
     await callback.answer()
 
@@ -1106,5 +1130,579 @@ async def qr_setup_secret_key_handler(message: Message, state: FSMContext):
 
     fake = FakeCallback(menu_message, message.from_user)
     await show_qr_management_menu(fake, state)
+
+
+# ============================================================================
+# НАСТРОЙКА WATA (карта/СБП через REST API)
+# ============================================================================
+
+@router.callback_query(F.data == "admin_payments_wata")
+async def show_wata_management_menu(callback: CallbackQuery, state: FSMContext):
+    """Показывает меню управления оплатой через WATA."""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("⛔ Доступ запрещён", show_alert=True)
+        return
+
+    await state.set_state(AdminStates.payments_menu)
+
+    is_enabled = is_wata_enabled()
+    token = get_setting('wata_jwt_token', '') or ''
+
+    status_emoji = "🟢" if is_enabled else "⚪"
+    status_text = "включено" if is_enabled else "выключено"
+
+    if len(token) >= 12:
+        token_display = f"Установлен ✅ (<code>{escape_html(token[:6])}...{escape_html(token[-4:])}</code>)"
+    elif token:
+        token_display = "Установлен ✅"
+    else:
+        token_display = "❌ Не задан"
+
+    text = (
+        "🌊 <b>Оплата WATA (Карта/СБП)</b>\n\n"
+        "Приём платежей через WATA — российский эквайринг (карты + СБП).\n"
+        "Минимальная сумма платежа: <b>10 ₽</b>.\n\n"
+        "📋 <b>Как получить доступ:</b>\n"
+        "1. Зарегистрируйтесь: <a href=\"https://wata.pro\">wata.pro</a>\n"
+        "2. Назовите промокод <code>YadrenoVPN</code> — это даст вам бесплатное подключение.\n"
+        "3. Напишите менеджеру <b>@Nikita_WATA</b> и сообщите, что вы от меня — он подключит вас быстрее.\n"
+        "4. В личном кабинете создайте JWT-токен (Профиль → API).\n"
+        "5. Вставьте токен сюда (кнопка ниже).\n\n"
+        f"{status_emoji} Статус: <b>{status_text}</b>\n"
+        f"🔑 JWT-токен: {token_display}\n\n"
+        "Выберите действие:"
+    )
+
+    await safe_edit_or_send(
+        callback.message,
+        text,
+        reply_markup=wata_management_kb(is_enabled),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin_wata_mgmt_toggle")
+async def wata_mgmt_toggle(callback: CallbackQuery, state: FSMContext):
+    """Включает/выключает оплату через WATA."""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("⛔ Доступ запрещён", show_alert=True)
+        return
+
+    current = is_wata_enabled()
+    if not current:
+        token = get_setting('wata_jwt_token', '')
+        if not token or not token.strip():
+            await callback.answer("❌ Сначала укажите JWT-токен!", show_alert=True)
+            return
+
+    new_value = '0' if current else '1'
+    set_setting('wata_enabled', new_value)
+
+    status = "включена ✅" if new_value == '1' else "выключена"
+    await callback.answer(f"WATA-оплата {status}")
+    await show_wata_management_menu(callback, state)
+
+
+@router.callback_query(F.data == "admin_wata_mgmt_edit_token")
+async def wata_edit_token(callback: CallbackQuery, state: FSMContext):
+    """Запрашивает JWT-токен WATA."""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("⛔ Доступ запрещён", show_alert=True)
+        return
+
+    await state.set_state(AdminStates.wata_setup_token)
+    await state.update_data(last_menu_msg_id=callback.message.message_id)
+
+    await safe_edit_or_send(
+        callback.message,
+        "🔑 <b>Введите JWT-токен WATA</b>\n\n"
+        "Найдите в личном кабинете <a href=\"https://wata.pro\">wata.pro</a>: "
+        "<b>Профиль → API</b>.\n\n"
+        "<i>Токен будет частично скрыт после сохранения.</i>",
+        reply_markup=back_and_home_kb("admin_payments_wata"),
+    )
+    await callback.answer()
+
+
+@router.message(AdminStates.wata_setup_token)
+async def wata_setup_token_handler(message: Message, state: FSMContext):
+    """Обрабатывает ввод JWT-токена WATA."""
+    from bot.utils.text import get_message_text_for_storage
+
+    token = get_message_text_for_storage(message, 'plain').strip()
+
+    if len(token) < 20:
+        await safe_edit_or_send(message, "❌ Слишком короткий токен. Попробуйте ещё раз.")
+        return
+
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    set_setting('wata_jwt_token', token)
+
+    data = await state.get_data()
+    last_menu_msg_id = data.get('last_menu_msg_id')
+
+    class FakeCallback:
+        def __init__(self, msg, user):
+            self.message = msg
+            self.from_user = user
+            self.bot = msg.bot
+        async def answer(self, *args, **kwargs):
+            pass
+
+    menu_message = message
+    if last_menu_msg_id:
+        try:
+            menu_message = await message.bot.edit_message_text(
+                chat_id=message.chat.id,
+                message_id=last_menu_msg_id,
+                text="⌛"
+            )
+        except Exception:
+            menu_message = await safe_edit_or_send(message, "⌛", force_new=True)
+
+    fake = FakeCallback(menu_message, message.from_user)
+    await show_wata_management_menu(fake, state)
+
+
+# ============================================================================
+# НАСТРOЙКА PLATEGA (СБП через REST API)
+# ============================================================================
+
+@router.callback_query(F.data == "admin_payments_platega")
+async def show_platega_management_menu(callback: CallbackQuery, state: FSMContext):
+    """Показывает меню управления оплатой через Platega."""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("⛔ Доступ запрещён", show_alert=True)
+        return
+
+    await state.set_state(AdminStates.payments_menu)
+
+    is_enabled = is_platega_enabled()
+    merchant_id = get_setting('platega_merchant_id', '') or ''
+    secret = get_setting('platega_secret', '') or ''
+
+    status_emoji = "🟢" if is_enabled else "⚪"
+    status_text = "включено" if is_enabled else "выключено"
+
+    if merchant_id:
+        if len(merchant_id) >= 8:
+            merchant_display = f"Установлен ✅ (<code>{escape_html(merchant_id[:4])}...{escape_html(merchant_id[-4:])}</code>)"
+        else:
+            merchant_display = "Установлен ✅"
+    else:
+        merchant_display = "❌ Не задан"
+
+    if secret:
+        if len(secret) >= 12:
+            secret_display = f"Установлен ✅ (<code>{escape_html(secret[:4])}...{escape_html(secret[-4:])}</code>)"
+        else:
+            secret_display = "Установлен ✅"
+    else:
+        secret_display = "❌ Не задан"
+
+    text = (
+        "💸 <b>Оплата Platega (СБП)</b>\n\n"
+        "Приём платежей по Системе Быстрых Платежей через Platega.\n"
+        "Минимальная сумма платежа: <b>10 ₽</b>.\n\n"
+        "📋 <b>Как получить доступ:</b>\n"
+        "1. Напишите менеджеру <b>@platega_connect_manager</b>\n"
+        "2. Скажите, что вы от <b>@plushkinva</b> — получите скидку на подключение.\n"
+        "3. После подключения скопируйте <b>Merchant ID</b> и <b>Secret</b> из ЛК.\n"
+        "4. Укажите их в кнопках ниже.\n\n"
+        f"{status_emoji} Статус: <b>{status_text}</b>\n"
+        f"🆔 Merchant ID: {merchant_display}\n"
+        f"🔐 Secret: {secret_display}\n\n"
+        "Выберите действие:"
+    )
+
+    await safe_edit_or_send(
+        callback.message,
+        text,
+        reply_markup=platega_management_kb(is_enabled),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin_platega_mgmt_toggle")
+async def platega_mgmt_toggle(callback: CallbackQuery, state: FSMContext):
+    """Включает/выключает оплату через Platega."""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("⛔ Доступ запрещён", show_alert=True)
+        return
+
+    current = is_platega_enabled()
+    if not current:
+        merchant_id = get_setting('platega_merchant_id', '')
+        secret = get_setting('platega_secret', '')
+        if not merchant_id or not merchant_id.strip() or not secret or not secret.strip():
+            await callback.answer("❌ Сначала укажите Merchant ID и Secret!", show_alert=True)
+            return
+
+    new_value = '0' if current else '1'
+    set_setting('platega_enabled', new_value)
+
+    status = "включена ✅" if new_value == '1' else "выключена"
+    await callback.answer(f"Platega-оплата {status}")
+    await show_platega_management_menu(callback, state)
+
+
+@router.callback_query(F.data == "admin_platega_mgmt_edit_merchant")
+async def platega_edit_merchant(callback: CallbackQuery, state: FSMContext):
+    """Запрашивает Merchant ID Platega."""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("⛔ Доступ запрещён", show_alert=True)
+        return
+
+    await state.set_state(AdminStates.platega_setup_merchant)
+    await state.update_data(last_menu_msg_id=callback.message.message_id)
+
+    await safe_edit_or_send(
+        callback.message,
+        "🆔 <b>Введите Merchant ID Platega</b>\n\n"
+        "Найдите его в личном кабинете Platega после подключения.\n\n"
+        "<i>Значение будет частично скрыто после сохранения.</i>",
+        reply_markup=back_and_home_kb("admin_payments_platega"),
+    )
+    await callback.answer()
+
+
+@router.message(AdminStates.platega_setup_merchant)
+async def platega_setup_merchant_handler(message: Message, state: FSMContext):
+    """Обрабатывает ввод Merchant ID Platega."""
+    from bot.utils.text import get_message_text_for_storage
+
+    merchant_id = get_message_text_for_storage(message, 'plain').strip()
+
+    if len(merchant_id) < 4:
+        await safe_edit_or_send(message, "❌ Слишком короткий Merchant ID. Попробуйте ещё раз.")
+        return
+
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    set_setting('platega_merchant_id', merchant_id)
+
+    data = await state.get_data()
+    last_menu_msg_id = data.get('last_menu_msg_id')
+
+    class FakeCallback:
+        def __init__(self, msg, user):
+            self.message = msg
+            self.from_user = user
+            self.bot = msg.bot
+        async def answer(self, *args, **kwargs):
+            pass
+
+    menu_message = message
+    if last_menu_msg_id:
+        try:
+            menu_message = await message.bot.edit_message_text(
+                chat_id=message.chat.id,
+                message_id=last_menu_msg_id,
+                text="⌛"
+            )
+        except Exception:
+            menu_message = await safe_edit_or_send(message, "⌛", force_new=True)
+
+    fake = FakeCallback(menu_message, message.from_user)
+    await show_platega_management_menu(fake, state)
+
+
+@router.callback_query(F.data == "admin_platega_mgmt_edit_secret")
+async def platega_edit_secret(callback: CallbackQuery, state: FSMContext):
+    """Запрашивает Secret Platega."""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("⛔ Доступ запрещён", show_alert=True)
+        return
+
+    await state.set_state(AdminStates.platega_setup_secret)
+    await state.update_data(last_menu_msg_id=callback.message.message_id)
+
+    await safe_edit_or_send(
+        callback.message,
+        "🔐 <b>Введите Secret Platega</b>\n\n"
+        "Найдите его в личном кабинете Platega после подключения.\n\n"
+        "<i>Значение будет частично скрыто после сохранения.</i>",
+        reply_markup=back_and_home_kb("admin_payments_platega"),
+    )
+    await callback.answer()
+
+
+@router.message(AdminStates.platega_setup_secret)
+async def platega_setup_secret_handler(message: Message, state: FSMContext):
+    """Обрабатывает ввод Secret Platega."""
+    from bot.utils.text import get_message_text_for_storage
+
+    secret = get_message_text_for_storage(message, 'plain').strip()
+
+    if len(secret) < 8:
+        await safe_edit_or_send(message, "❌ Слишком короткий Secret. Попробуйте ещё раз.")
+        return
+
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    set_setting('platega_secret', secret)
+
+    data = await state.get_data()
+    last_menu_msg_id = data.get('last_menu_msg_id')
+
+    class FakeCallback:
+        def __init__(self, msg, user):
+            self.message = msg
+            self.from_user = user
+            self.bot = msg.bot
+        async def answer(self, *args, **kwargs):
+            pass
+
+    menu_message = message
+    if last_menu_msg_id:
+        try:
+            menu_message = await message.bot.edit_message_text(
+                chat_id=message.chat.id,
+                message_id=last_menu_msg_id,
+                text="⌛"
+            )
+        except Exception:
+            menu_message = await safe_edit_or_send(message, "⌛", force_new=True)
+
+    fake = FakeCallback(menu_message, message.from_user)
+    await show_platega_management_menu(fake, state)
+
+
+# ============================================================================
+# НАСТРOЙКА CARDLINK (Карта/СБП через REST API — cardlink.link)
+# ============================================================================
+
+@router.callback_query(F.data == "admin_payments_cardlink")
+async def show_cardlink_management_menu(callback: CallbackQuery, state: FSMContext):
+    """Показывает меню управления оплатой через Cardlink."""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("⛔ Доступ запрещён", show_alert=True)
+        return
+
+    await state.set_state(AdminStates.payments_menu)
+
+    is_enabled = is_cardlink_enabled()
+    shop_id = get_setting('cardlink_shop_id', '') or ''
+    api_token = get_setting('cardlink_api_token', '') or ''
+
+    status_emoji = "🟢" if is_enabled else "⚪"
+    status_text = "включено" if is_enabled else "выключено"
+
+    if shop_id:
+        if len(shop_id) >= 8:
+            shop_display = f"Установлен ✅ (<code>{escape_html(shop_id[:4])}...{escape_html(shop_id[-4:])}</code>)"
+        else:
+            shop_display = "Установлен ✅"
+    else:
+        shop_display = "❌ Не задан"
+
+    if api_token:
+        if len(api_token) >= 12:
+            token_display = f"Установлен ✅ (<code>{escape_html(api_token[:4])}...{escape_html(api_token[-4:])}</code>)"
+        else:
+            token_display = "Установлен ✅"
+    else:
+        token_display = "❌ Не задан"
+
+    # bot_name для возвратных ссылок
+    try:
+        bot_info = await callback.bot.get_me()
+        bot_username = bot_info.username or "your_bot"
+    except Exception:
+        bot_username = "your_bot"
+
+    text = (
+        "🔗 <b>Оплата Cardlink (Карта/СБП)</b> 🌟 <b>Рекомендованный</b>\n\n"
+        "Приём платежей картой и через СБП по прямой интеграции с "
+        "<a href=\"https://cardlink.link/\">cardlink.link</a> "
+        "(без webhook — проверка по кнопке «Я оплатил» и через возвратные ссылки).\n"
+        "Минимальная сумма платежа: <b>10 ₽</b>.\n\n"
+        "👉 <b>Почему это рекомендуемый метод:</b> Ниже комиссии и максимально нативная интеграция "
+        "с обратным переходом в бота после оплаты и автоматической проверкой платежа.\n\n"
+        "📋 <b>Как получить доступ:</b>\n"
+        "1. Зарегистрируйтесь на <a href=\"https://cardlink.link/\">cardlink.link</a>.\n"
+        "2. При регистрации укажите промокод — получите скидку:\n"
+        "<code>YadrenoVPN</code>\n"
+        "3. После одобрения скопируйте <b>Shop ID</b> и <b>API-токен</b> из ЛК.\n"
+        "4. Укажите их в кнопках ниже.\n\n"
+        "🔁 <b>Возвратные ссылки</b> (указывайте в настройках магазина Cardlink):\n"
+        f"• Успех — <code>https://t.me/{bot_username}?start=cl_Success</code>\n"
+        f"• Ошибка — <code>https://t.me/{bot_username}?start=cl_Fail</code>\n"
+        f"• Возврат — <code>https://t.me/{bot_username}?start=cl_Result</code>\n"
+        "<i>Они же передаются в каждый запрос на создание платежа, поэтому "
+        "настройка магазина не обязательна.</i>\n\n"
+        f"{status_emoji} Статус: <b>{status_text}</b>\n"
+        f"🆔 Shop ID: {shop_display}\n"
+        f"🔐 API-токен: {token_display}\n\n"
+        "Выберите действие:"
+    )
+
+    await safe_edit_or_send(
+        callback.message,
+        text,
+        reply_markup=cardlink_management_kb(is_enabled),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin_cardlink_mgmt_toggle")
+async def cardlink_mgmt_toggle(callback: CallbackQuery, state: FSMContext):
+    """Включает/выключает оплату через Cardlink."""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("⛔ Доступ запрещён", show_alert=True)
+        return
+
+    current = is_cardlink_enabled()
+    if not current:
+        shop_id = get_setting('cardlink_shop_id', '')
+        api_token = get_setting('cardlink_api_token', '')
+        if not shop_id or not shop_id.strip() or not api_token or not api_token.strip():
+            await callback.answer("❌ Сначала укажите Shop ID и API-токен!", show_alert=True)
+            return
+
+    new_value = '0' if current else '1'
+    set_setting('cardlink_enabled', new_value)
+
+    status = "включена ✅" if new_value == '1' else "выключена"
+    await callback.answer(f"Cardlink-оплата {status}")
+    await show_cardlink_management_menu(callback, state)
+
+
+@router.callback_query(F.data == "admin_cardlink_mgmt_edit_shop_id")
+async def cardlink_edit_shop_id(callback: CallbackQuery, state: FSMContext):
+    """Запрашивает Shop ID Cardlink."""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("⛔ Доступ запрещён", show_alert=True)
+        return
+
+    await state.set_state(AdminStates.cardlink_setup_shop_id)
+    await state.update_data(last_menu_msg_id=callback.message.message_id)
+
+    await safe_edit_or_send(
+        callback.message,
+        "🆔 <b>Введите Shop ID Cardlink</b>\n\n"
+        "Найдите его в личном кабинете на <a href=\"https://cardlink.link/\">cardlink.link</a>.\n\n"
+        "<i>Значение будет частично скрыто после сохранения.</i>",
+        reply_markup=back_and_home_kb("admin_payments_cardlink"),
+    )
+    await callback.answer()
+
+
+@router.message(AdminStates.cardlink_setup_shop_id)
+async def cardlink_setup_shop_id_handler(message: Message, state: FSMContext):
+    """Обрабатывает ввод Shop ID Cardlink."""
+    from bot.utils.text import get_message_text_for_storage
+
+    shop_id = get_message_text_for_storage(message, 'plain').strip()
+
+    if len(shop_id) < 4:
+        await safe_edit_or_send(message, "❌ Слишком короткий Shop ID. Попробуйте ещё раз.")
+        return
+
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    set_setting('cardlink_shop_id', shop_id)
+
+    data = await state.get_data()
+    last_menu_msg_id = data.get('last_menu_msg_id')
+
+    class FakeCallback:
+        def __init__(self, msg, user):
+            self.message = msg
+            self.from_user = user
+            self.bot = msg.bot
+        async def answer(self, *args, **kwargs):
+            pass
+
+    menu_message = message
+    if last_menu_msg_id:
+        try:
+            menu_message = await message.bot.edit_message_text(
+                chat_id=message.chat.id,
+                message_id=last_menu_msg_id,
+                text="⌛"
+            )
+        except Exception:
+            menu_message = await safe_edit_or_send(message, "⌛", force_new=True)
+
+    fake = FakeCallback(menu_message, message.from_user)
+    await show_cardlink_management_menu(fake, state)
+
+
+@router.callback_query(F.data == "admin_cardlink_mgmt_edit_api_token")
+async def cardlink_edit_api_token(callback: CallbackQuery, state: FSMContext):
+    """Запрашивает API-токен Cardlink."""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("⛔ Доступ запрещён", show_alert=True)
+        return
+
+    await state.set_state(AdminStates.cardlink_setup_api_token)
+    await state.update_data(last_menu_msg_id=callback.message.message_id)
+
+    await safe_edit_or_send(
+        callback.message,
+        "🔐 <b>Введите API-токен Cardlink</b>\n\n"
+        "Сгенерируйте токен в личном кабинете на <a href=\"https://cardlink.link/\">cardlink.link</a>.\n\n"
+        "<i>Значение будет частично скрыто после сохранения.</i>",
+        reply_markup=back_and_home_kb("admin_payments_cardlink"),
+    )
+    await callback.answer()
+
+
+@router.message(AdminStates.cardlink_setup_api_token)
+async def cardlink_setup_api_token_handler(message: Message, state: FSMContext):
+    """Обрабатывает ввод API-токена Cardlink."""
+    from bot.utils.text import get_message_text_for_storage
+
+    api_token = get_message_text_for_storage(message, 'plain').strip()
+
+    if len(api_token) < 8:
+        await safe_edit_or_send(message, "❌ Слишком короткий токен. Попробуйте ещё раз.")
+        return
+
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    set_setting('cardlink_api_token', api_token)
+
+    data = await state.get_data()
+    last_menu_msg_id = data.get('last_menu_msg_id')
+
+    class FakeCallback:
+        def __init__(self, msg, user):
+            self.message = msg
+            self.from_user = user
+            self.bot = msg.bot
+        async def answer(self, *args, **kwargs):
+            pass
+
+    menu_message = message
+    if last_menu_msg_id:
+        try:
+            menu_message = await message.bot.edit_message_text(
+                chat_id=message.chat.id,
+                message_id=last_menu_msg_id,
+                text="⌛"
+            )
+        except Exception:
+            menu_message = await safe_edit_or_send(message, "⌛", force_new=True)
+
+    fake = FakeCallback(menu_message, message.from_user)
+    await show_cardlink_management_menu(fake, state)
 
 

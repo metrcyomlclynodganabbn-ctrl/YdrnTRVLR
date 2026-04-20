@@ -24,12 +24,16 @@ def _build_tariff_text() -> str:
     from database.requests import (
         get_all_tariffs, is_crypto_configured, is_stars_enabled,
         is_cards_enabled, is_yookassa_qr_configured, is_demo_payment_enabled,
+        is_wata_configured, is_platega_configured, is_cardlink_configured,
     )
 
     crypto_enabled = is_crypto_configured()
     stars_enabled = is_stars_enabled()
     cards_enabled = is_cards_enabled()
     yookassa_qr_enabled = is_yookassa_qr_configured()
+    wata_enabled = is_wata_configured()
+    platega_enabled = is_platega_configured()
+    cardlink_enabled = is_cardlink_configured()
     demo_enabled = is_demo_payment_enabled()
 
     tariffs = get_all_tariffs()
@@ -45,7 +49,9 @@ def _build_tariff_text() -> str:
             prices.append(f'${escape_html(price_str)}')
         if stars_enabled:
             prices.append(f"{tariff['price_stars']} ⭐")
-        if (cards_enabled or yookassa_qr_enabled or demo_enabled) and tariff.get('price_rub', 0) > 0:
+        if (cards_enabled or yookassa_qr_enabled or wata_enabled
+                or platega_enabled or cardlink_enabled or demo_enabled
+            ) and tariff.get('price_rub', 0) > 0:
             prices.append(f"{int(tariff['price_rub'])} ₽")
         price_display = ' / '.join(prices) if prices else 'Цена не установлена'
         lines.append(f"• {escape_html(tariff['name'])} — {price_display}")
@@ -116,9 +122,16 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject)
     
     # Удаляем Reply-клавиатуру, если она "застряла" от предыдущих стейтов
     from aiogram.types import ReplyKeyboardRemove
+    import asyncio
     try:
-        temp_msg = await message.answer("\u200b", reply_markup=ReplyKeyboardRemove())
-        await temp_msg.delete()
+        temp_msg = await message.answer("⏳", reply_markup=ReplyKeyboardRemove())
+        async def _delete_temp():
+            await asyncio.sleep(2.0)
+            try:
+                await temp_msg.delete()
+            except Exception:
+                pass
+        asyncio.create_task(_delete_temp())
     except Exception:
         pass
 
@@ -146,6 +159,44 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject)
             else:
                 logger.exception(f'Ошибка обработки платежа: {e}')
                 await safe_edit_or_send(message, '❌ Произошла ошибка при обработке платежа.', force_new=True)
+        return
+
+    # Cardlink deep-link: пользователь вернулся по ссылке cl_Success/cl_Fail/cl_Result.
+    # Бот НЕ зачисляет платёж автоматически — а запускает ту же проверку, что и
+    # кнопка «✅ Я оплатил».
+    if args and args.startswith('cl_'):
+        from database.requests import find_latest_pending_cardlink_order_for_user
+        from bot.handlers.user.payments.cardlink import _run_cardlink_check
+
+        order = find_latest_pending_cardlink_order_for_user(user['id'])
+        if not order:
+            await safe_edit_or_send(
+                message,
+                '⚠️ <b>Активная оплата Cardlink не найдена</b>\n\n'
+                'Возможно, платёж уже обработан или ещё не создан.\n'
+                'Откройте «Купить ключ» и попробуйте снова.',
+                force_new=True
+            )
+            try:
+                await _render_main_page(message, force_new=True)
+            except Exception:
+                pass
+            return
+
+        try:
+            await _run_cardlink_check(
+                message, state,
+                order_id=order['order_id'],
+                telegram_id=message.from_user.id,
+                callback=None,
+            )
+        except Exception as e:
+            logger.exception(f'Ошибка обработки cl_ deep-link: {e}')
+            await safe_edit_or_send(
+                message,
+                '❌ Произошла ошибка при проверке платежа Cardlink.',
+                force_new=True
+            )
         return
 
     if is_new and args and args.startswith('ref_'):

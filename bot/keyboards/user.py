@@ -113,7 +113,10 @@ def buy_key_kb(
     yookassa_qr_enabled: bool = False,
     order_id: str = None,
     show_balance_button: bool = False,
-    demo_enabled: bool = False
+    demo_enabled: bool = False,
+    wata_enabled: bool = False,
+    platega_enabled: bool = False,
+    cardlink_enabled: bool = False
 ) -> InlineKeyboardMarkup:
     """
     Клавиатура для страницы «Купить ключ».
@@ -125,6 +128,9 @@ def buy_key_kb(
         yookassa_qr_enabled: Показывать ли кнопку QR-оплаты через ЮКассу
         order_id: ID созданного ордера (для оптимизации Stars/Cards)
         show_balance_button: Показывать ли кнопку «Использовать баланс»
+        wata_enabled: Показывать ли кнопку оплаты WATA (Карта/СБП)
+        platega_enabled: Показывать ли кнопку оплаты Platega (СБП)
+        cardlink_enabled: Показывать ли кнопку оплаты Cardlink (Карта/СБП)
     """
     builder = InlineKeyboardBuilder()
 
@@ -152,6 +158,24 @@ def buy_key_kb(
     if yookassa_qr_enabled:
         builder.row(
             InlineKeyboardButton(text="📱 QR-оплата (Карта/СБП)", callback_data="pay_qr")
+        )
+
+    # WATA — переход к выбору тарифа
+    if wata_enabled:
+        builder.row(
+            InlineKeyboardButton(text="🌊 Оплата WATA (Карта/СБП)", callback_data="pay_wata")
+        )
+
+    # Platega — переход к выбору тарифа
+    if platega_enabled:
+        builder.row(
+            InlineKeyboardButton(text="💸 Оплата Platega (СБП)", callback_data="pay_platega")
+        )
+
+    # Cardlink — переход к выбору тарифа
+    if cardlink_enabled:
+        builder.row(
+            InlineKeyboardButton(text="🔗 Оплата Cardlink (Карта/СБП)", callback_data="pay_cardlink")
         )
 
     # Демо оплата (РФ) — переход к выбору тарифа
@@ -260,10 +284,10 @@ def balance_payment_kb(
     return builder.as_markup()
 
 
-def tariff_select_kb(tariffs: list, back_callback: str = "buy_key", order_id: str = None, is_cards: bool = False, is_crypto: bool = False, is_balance: bool = False, is_qr: bool = False, groups_data: list = None, is_demo: bool = False) -> InlineKeyboardMarkup:
+def tariff_select_kb(tariffs: list, back_callback: str = "buy_key", order_id: str = None, is_cards: bool = False, is_crypto: bool = False, is_balance: bool = False, is_qr: bool = False, groups_data: list = None, is_demo: bool = False, is_wata: bool = False, is_platega: bool = False, is_cardlink: bool = False) -> InlineKeyboardMarkup:
     """
     Клавиатура выбора тарифа для оплаты Stars, Картами, Криптой или Балансом.
-    
+
     Args:
         tariffs: Список тарифов из БД (используется только если groups_data=None)
         back_callback: Callback для кнопки «Назад»
@@ -273,6 +297,7 @@ def tariff_select_kb(tariffs: list, back_callback: str = "buy_key", order_id: st
         is_balance: True если выбор тарифа для оплаты с баланса
         is_qr: True если выбор тарифа для QR-оплаты (ЮКасса)
         is_demo: True если выбор тарифа для демонстрационной РФ оплаты
+        is_wata: True если выбор тарифа для оплаты через WATA
         groups_data: Список dict с ключами 'group' и 'tariffs' для группировки.
                      Если None — tariffs отображаются без группировки.
     """
@@ -308,6 +333,30 @@ def tariff_select_kb(tariffs: list, back_callback: str = "buy_key", order_id: st
                 price_display = f"{price_rub} ₽"
                 prefix = "qr_pay"
                 emoji = '📱'
+            elif is_wata:
+                price_rub = tariff.get('price_rub')
+                # WATA минимум 10 ₽
+                if price_rub is None or price_rub < 10:
+                    continue
+                price_display = f"{price_rub} ₽"
+                prefix = "wata_pay"
+                emoji = '🌊'
+            elif is_platega:
+                price_rub = tariff.get('price_rub')
+                # Platega минимум 10 ₽
+                if price_rub is None or price_rub < 10:
+                    continue
+                price_display = f"{price_rub} ₽"
+                prefix = "platega_pay"
+                emoji = '💸'
+            elif is_cardlink:
+                price_rub = tariff.get('price_rub')
+                # Cardlink минимум 10 ₽
+                if price_rub is None or price_rub < 10:
+                    continue
+                price_display = f"{price_rub} ₽"
+                prefix = "cardlink_pay"
+                emoji = '🔗'
             elif is_balance:
                 price_rub = tariff.get('price_rub')
                 if price_rub is None or price_rub <= 1:
@@ -496,10 +545,10 @@ def key_show_kb(key_id: int = None) -> InlineKeyboardMarkup:
     return key_issued_kb()
 
 
-def renew_tariff_select_kb(tariffs: list, key_id: int, order_id: str = None, is_cards: bool = False, is_crypto: bool = False, is_balance: bool = False, is_qr: bool = False, is_demo: bool = False) -> InlineKeyboardMarkup:
+def renew_tariff_select_kb(tariffs: list, key_id: int, order_id: str = None, is_cards: bool = False, is_crypto: bool = False, is_balance: bool = False, is_qr: bool = False, is_demo: bool = False, is_wata: bool = False, is_platega: bool = False, is_cardlink: bool = False) -> InlineKeyboardMarkup:
     """
     Клавиатура выбора тарифа для продления ключа (для Stars, Карт или Баланса).
-    
+
     Args:
         tariffs: Список активных тарифов
         key_id: ID ключа для продления
@@ -509,6 +558,7 @@ def renew_tariff_select_kb(tariffs: list, key_id: int, order_id: str = None, is_
         is_balance: True если выбор тарифа для оплаты с баланса
         is_qr: True если выбор тарифа для QR-оплаты (ЮКасса)
         is_demo: True если выбор тарифа для демонстрационной РФ оплаты
+        is_wata: True если выбор тарифа для оплаты WATA
     """
     builder = InlineKeyboardBuilder()
     
@@ -533,6 +583,27 @@ def renew_tariff_select_kb(tariffs: list, key_id: int, order_id: str = None, is_
             price_display = f"{price_rub} ₽"
             prefix = "renew_pay_qr"
             emoji = '📱'
+        elif is_wata:
+            price_rub = tariff.get('price_rub')
+            if price_rub is None or price_rub < 10:
+                continue
+            price_display = f"{price_rub} ₽"
+            prefix = "renew_pay_wata"
+            emoji = '🌊'
+        elif is_platega:
+            price_rub = tariff.get('price_rub')
+            if price_rub is None or price_rub < 10:
+                continue
+            price_display = f"{price_rub} ₽"
+            prefix = "renew_pay_platega"
+            emoji = '💸'
+        elif is_cardlink:
+            price_rub = tariff.get('price_rub')
+            if price_rub is None or price_rub < 10:
+                continue
+            price_display = f"{price_rub} ₽"
+            prefix = "renew_pay_cardlink"
+            emoji = '🔗'
         elif is_demo:
             price_rub = tariff.get('price_rub')
             if price_rub is None or price_rub <= 1:
@@ -581,7 +652,10 @@ def renew_payment_method_kb(
     cards_enabled: bool = False,
     yookassa_qr_enabled: bool = False,
     show_balance_button: bool = False,
-    demo_enabled: bool = False
+    demo_enabled: bool = False,
+    wata_enabled: bool = False,
+    platega_enabled: bool = False,
+    cardlink_enabled: bool = False
 ) -> InlineKeyboardMarkup:
     """
     Клавиатура выбора способа оплаты для продления (первый шаг).
@@ -593,6 +667,7 @@ def renew_payment_method_kb(
         cards_enabled: Доступна ли оплата Картами
         yookassa_qr_enabled: Доступна ли QR-оплата через ЮКассу
         show_balance_button: Показывать ли кнопку «Использовать баланс»
+        wata_enabled: Доступна ли оплата через WATA
     """
     builder = InlineKeyboardBuilder()
 
@@ -626,6 +701,33 @@ def renew_payment_method_kb(
             InlineKeyboardButton(
                 text="📱 QR-оплата (Карта/СБП)",
                 callback_data=f"renew_qr_tariff:{key_id}"
+            )
+        )
+
+    # WATA — переход к выбору тарифа
+    if wata_enabled:
+        builder.row(
+            InlineKeyboardButton(
+                text="🌊 Оплата WATA (Карта/СБП)",
+                callback_data=f"renew_wata_tariff:{key_id}"
+            )
+        )
+
+    # Platega — переход к выбору тарифа
+    if platega_enabled:
+        builder.row(
+            InlineKeyboardButton(
+                text="💸 Оплата Platega (СБП)",
+                callback_data=f"renew_platega_tariff:{key_id}"
+            )
+        )
+
+    # Cardlink — переход к выбору тарифа
+    if cardlink_enabled:
+        builder.row(
+            InlineKeyboardButton(
+                text="🔗 Оплата Cardlink (Карта/СБП)",
+                callback_data=f"renew_cardlink_tariff:{key_id}"
             )
         )
 
@@ -877,6 +979,96 @@ def yookassa_qr_kb(order_id: str, back_callback: str = "buy_key", qr_url: str = 
 
 # renew_yookassa_qr_tariff_kb и qr_tariff_select_kb удалены —
 # QR-оплата теперь использует общие renew_tariff_select_kb(is_qr=True) и tariff_select_kb(is_qr=True)
+
+
+# ============================================================================
+# WATA-ОПЛАТА (карта/СБП через ссылку)
+# ============================================================================
+
+def wata_qr_kb(order_id: str, back_callback: str = "buy_key", qr_url: str = None) -> InlineKeyboardMarkup:
+    """
+    Клавиатура страницы оплаты WATA (карта/СБП).
+
+    Args:
+        order_id: Наш внутренний order_id
+        back_callback: Каллбэк для кнопки «Назад»
+        qr_url: Ссылка на оплату (URL)
+    """
+    builder = InlineKeyboardBuilder()
+
+    if qr_url:
+        builder.row(
+            InlineKeyboardButton(text="💳 Оплатить", url=qr_url)
+        )
+
+    builder.row(
+        InlineKeyboardButton(text="✅ Я оплатил", callback_data=f"check_wata:{order_id}")
+    )
+    builder.row(
+        InlineKeyboardButton(text="⬅️ Назад", callback_data=back_callback),
+        InlineKeyboardButton(text="🈴 На главную", callback_data="start")
+    )
+    return builder.as_markup()
+
+
+# ============================================================================
+# PLATEGA-ОПЛАТА (СБП через ссылку)
+# ============================================================================
+
+def platega_qr_kb(order_id: str, back_callback: str = "buy_key", qr_url: str = None) -> InlineKeyboardMarkup:
+    """
+    Клавиатура страницы оплаты Platega (СБП).
+
+    Args:
+        order_id: Наш внутренний order_id
+        back_callback: Каллбэк для кнопки «Назад»
+        qr_url: Ссылка на оплату (URL)
+    """
+    builder = InlineKeyboardBuilder()
+
+    if qr_url:
+        builder.row(
+            InlineKeyboardButton(text="💳 Оплатить", url=qr_url)
+        )
+
+    builder.row(
+        InlineKeyboardButton(text="✅ Я оплатил", callback_data=f"check_platega:{order_id}")
+    )
+    builder.row(
+        InlineKeyboardButton(text="⬅️ Назад", callback_data=back_callback),
+        InlineKeyboardButton(text="🈴 На главную", callback_data="start")
+    )
+    return builder.as_markup()
+
+
+# ============================================================================
+# CARDLINK-ОПЛАТА (Карта/СБП через ссылку)
+# ============================================================================
+
+def cardlink_qr_kb(order_id: str, back_callback: str = "buy_key", qr_url: str = None) -> InlineKeyboardMarkup:
+    """
+    Клавиатура страницы оплаты Cardlink (Карта/СБП).
+
+    Args:
+        order_id: Наш внутренний order_id
+        back_callback: Каллбэк для кнопки «Назад»
+        qr_url: Ссылка на оплату (URL)
+    """
+    builder = InlineKeyboardBuilder()
+
+    if qr_url:
+        builder.row(
+            InlineKeyboardButton(text="💳 Оплатить", url=qr_url)
+        )
+
+    builder.row(
+        InlineKeyboardButton(text="✅ Я оплатил", callback_data=f"check_cardlink:{order_id}")
+    )
+    builder.row(
+        InlineKeyboardButton(text="⬅️ Назад", callback_data=back_callback),
+        InlineKeyboardButton(text="🈴 На главную", callback_data="start")
+    )
+    return builder.as_markup()
 
 
 def referral_menu_kb() -> InlineKeyboardMarkup:

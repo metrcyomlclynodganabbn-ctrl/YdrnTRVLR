@@ -20,6 +20,15 @@ __all__ = [
     'is_yookassa_qr_enabled',
     'is_yookassa_qr_configured',
     'get_yookassa_credentials',
+    'is_wata_enabled',
+    'is_wata_configured',
+    'get_wata_token',
+    'is_platega_enabled',
+    'is_platega_configured',
+    'get_platega_credentials',
+    'is_cardlink_enabled',
+    'is_cardlink_configured',
+    'get_cardlink_credentials',
     'is_trial_enabled',
     'get_trial_tariff_id',
     'is_demo_payment_enabled',
@@ -139,6 +148,87 @@ def get_yookassa_credentials() -> tuple[str, str]:
     shop_id = get_setting('yookassa_shop_id', '')
     secret_key = get_setting('yookassa_secret_key', '')
     return shop_id, secret_key
+
+def is_wata_enabled() -> bool:
+    """Проверяет, включена ли оплата через WATA."""
+    return get_setting('wata_enabled', '0') == '1'
+
+def is_wata_configured() -> bool:
+    """
+    Проверяет, настроена ли оплата через WATA полностью.
+
+    Returns:
+        True если WATA включена И задан JWT-токен
+    """
+    if not is_wata_enabled():
+        return False
+    token = get_setting('wata_jwt_token', '')
+    return bool(token and token.strip())
+
+def get_wata_token() -> str:
+    """
+    Возвращает JWT-токен для WATA API.
+
+    Returns:
+        Строка с JWT-токеном (или пустая строка)
+    """
+    return get_setting('wata_jwt_token', '') or ''
+
+def is_platega_enabled() -> bool:
+    """Проверяет, включена ли оплата через Platega."""
+    return get_setting('platega_enabled', '0') == '1'
+
+def is_platega_configured() -> bool:
+    """
+    Проверяет, настроена ли оплата через Platega полностью.
+
+    Returns:
+        True если Platega включена И заданы merchant_id и secret
+    """
+    if not is_platega_enabled():
+        return False
+    merchant_id = get_setting('platega_merchant_id', '')
+    secret = get_setting('platega_secret', '')
+    return bool(merchant_id and merchant_id.strip() and secret and secret.strip())
+
+def get_platega_credentials() -> tuple[str, str]:
+    """
+    Возвращает учётные данные Platega для прямого API.
+
+    Returns:
+        Кортеж (merchant_id, secret)
+    """
+    merchant_id = get_setting('platega_merchant_id', '')
+    secret = get_setting('platega_secret', '')
+    return merchant_id, secret
+
+def is_cardlink_enabled() -> bool:
+    """Проверяет, включена ли оплата через Cardlink."""
+    return get_setting('cardlink_enabled', '0') == '1'
+
+def is_cardlink_configured() -> bool:
+    """
+    Проверяет, настроена ли оплата через Cardlink полностью.
+
+    Returns:
+        True если Cardlink включён И заданы shop_id и api_token
+    """
+    if not is_cardlink_enabled():
+        return False
+    shop_id = get_setting('cardlink_shop_id', '')
+    token = get_setting('cardlink_api_token', '')
+    return bool(shop_id and shop_id.strip() and token and token.strip())
+
+def get_cardlink_credentials() -> tuple[str, str]:
+    """
+    Возвращает учётные данные Cardlink для прямого API.
+
+    Returns:
+        Кортеж (shop_id, api_token)
+    """
+    shop_id = get_setting('cardlink_shop_id', '')
+    token = get_setting('cardlink_api_token', '')
+    return shop_id, token
 
 def is_trial_enabled() -> bool:
     """Включена ли функция пробной подписки."""

@@ -2,6 +2,17 @@
 
 # Yadreno VPN — скрипт установки и управления
 # Запуск: bash <(curl -sL https://raw.githubusercontent.com/plushkinv/YadrenoVPN/main/install.sh)
+# 
+# === АВТОМАТИЧЕСКИЙ ЗАПУСК (БЕЗ ДИАЛОГОВ) ===
+#
+# 1. Запуск прямо с GitHub (для чистой установки или если папки ещё нет):
+# bash <(curl -sL https://raw.githubusercontent.com/plushkinv/YadrenoVPN/main/install.sh) install <BOT_TOKEN> <ADMIN_ID>
+# bash <(curl -sL https://raw.githubusercontent.com/plushkinv/YadrenoVPN/main/install.sh) update [COMMIT_OR_BRANCH]
+# bash <(curl -sL https://raw.githubusercontent.com/plushkinv/YadrenoVPN/main/install.sh) reset [COMMIT_OR_BRANCH]
+#
+# 2. Локальный запуск (если репозиторий уже установлен и нужно просто обновить/сбросить):
+# bash install.sh update [COMMIT_OR_BRANCH]
+# bash install.sh reset [COMMIT_OR_BRANCH]
 
 set -e
 
@@ -38,6 +49,12 @@ print_err() {
 # Запрос настроек у пользователя
 ask_config() {
     print_header "Настройка конфигурации"
+
+    if [ "$AUTO_MODE" = "1" ]; then
+        NEED_WRITE_CONFIG=1
+        print_ok "Автоматический режим: используем переданные параметры"
+        return 0
+    fi
 
     if [ -f "$INSTALL_DIR/config.py" ]; then
         echo -e "${YELLOW}Обнаружен существующий config.py${NC}"
@@ -173,10 +190,15 @@ do_install() {
     # Проверяем, не установлен ли уже
     if [ -d "$INSTALL_DIR" ] && [ -d "$INSTALL_DIR/.git" ]; then
         print_warn "Yadreno VPN уже установлен в $INSTALL_DIR"
-        echo ""
-        echo "  1) Переустановить (удалить и установить заново)"
-        echo "  2) Отмена"
-        read -p "Выберите [1-2]: " reinstall_choice
+        if [ "$AUTO_MODE" = "1" ]; then
+            print_warn "Автоматический режим: принудительная переустановка"
+            reinstall_choice="1"
+        else
+            echo ""
+            echo "  1) Переустановить (удалить и установить заново)"
+            echo "  2) Отмена"
+            read -p "Выберите [1-2]: " reinstall_choice
+        fi
         if [ "$reinstall_choice" != "1" ]; then
             echo "Установка отменена."
             return 0
@@ -262,7 +284,13 @@ do_soft_update() {
         STASHED=1
     fi
 
-    git pull -q origin main
+    if [ -n "$TARGET_COMMIT" ]; then
+        git fetch -q origin
+        git checkout -q "$TARGET_COMMIT"
+    else
+        git checkout -q main
+        git pull -q origin main
+    fi
 
     if [ "$STASHED" = "1" ]; then
         git stash pop -q 2>/dev/null || print_warn "Не удалось восстановить локальные изменения (конфликт)"
@@ -301,7 +329,11 @@ do_hard_reset() {
 
     echo -e "${RED}Внимание! Все локальные изменения в коде будут перезаписаны.${NC}"
     echo -e "${YELLOW}config.py и vpn_bot.db затронуты НЕ будут.${NC}"
-    read -p "Продолжить? (y/N): " confirm
+    if [ "$AUTO_MODE" = "1" ]; then
+        confirm="y"
+    else
+        read -p "Продолжить? (y/N): " confirm
+    fi
     if [[ ! "$confirm" =~ ^[YyДд]$ ]]; then
         echo "Отменено."
         return 0
@@ -311,9 +343,13 @@ do_hard_reset() {
 
     # Жёсткая перезапись: config.py и vpn_bot.db в .gitignore — не затрагиваются
     git fetch origin -q
-    git reset --hard origin/main -q
+    local target="origin/main"
+    if [ -n "$TARGET_COMMIT" ]; then
+        target="$TARGET_COMMIT"
+    fi
+    git reset --hard "$target" -q
     git clean -fd -q
-    print_ok "Код перезаписан из GitHub (config.py и база не затронуты)"
+    print_ok "Код перезаписан ($target)"
 
     # Обновляем зависимости
     source "$VENV_DIR/bin/activate"
@@ -364,6 +400,38 @@ show_menu() {
 if [ "$EUID" -ne 0 ]; then
     print_err "Скрипт должен быть запущен от root (sudo)"
     exit 1
+fi
+
+# Проверка на автоматический режим (передан аргумент действия)
+if [ -n "$1" ]; then
+    ACTION="$1"
+    export AUTO_MODE="1"
+    
+    case "$ACTION" in
+        install)
+            if [ -z "$2" ] || [ -z "$3" ]; then
+                print_err "Для автоматической установки требуются BOT_TOKEN и ADMIN_ID"
+                echo "Использование: bash install.sh install <BOT_TOKEN> <ADMIN_ID>"
+                exit 1
+            fi
+            export BOT_TOKEN="$2"
+            export ADMIN_ID="$3"
+            do_install 
+            ;;
+        update)
+            export TARGET_COMMIT="$2"
+            do_soft_update 
+            ;;
+        reset)
+            export TARGET_COMMIT="$2"
+            do_hard_reset 
+            ;;
+        *)
+            print_err "Неизвестное действие: $ACTION. Доступно: install, update, reset"
+            exit 1
+            ;;
+    esac
+    exit 0
 fi
 
 show_menu
